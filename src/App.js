@@ -9,7 +9,7 @@ export default function App() {
   const tagCodeParam = urlParams.get("tagCode");
 
   const [token] = useState(tokenParam || null);
-  const [tagCode] = useState(tagCodeParam || "V001");
+  const [tagCode] = useState(tagCodeParam || "V002");
   const [liveData, setLiveData] = useState(null);
 
   const fetchLivePath = useCallback(async () => {
