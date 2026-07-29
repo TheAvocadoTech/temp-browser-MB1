@@ -2,6 +2,7 @@
   "name": "avocado-mobile-map",
   "version": "1.0.0",
   "private": true,
+  "homepage": "/temp",
   "dependencies": {
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
