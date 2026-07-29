@@ -9,12 +9,14 @@ export default function App() {
   const tagCodeParam = urlParams.get("tagCode");
 
   const [token] = useState(tokenParam || null);
-  const [tagCode] = useState(tagCodeParam || "E28011B0A502006E81D29C8");
+  const [tagCode] = useState(tagCodeParam || "395DFA82BF2400001B6E0E1D");
   const [liveData, setLiveData] = useState(null);
 
   const fetchLivePath = useCallback(async () => {
     try {
-      const API_BASE = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:7000`;
+      const API_BASE =
+        process.env.REACT_APP_API_URL ||
+        `${window.location.protocol}//${window.location.hostname}:7000`;
       const targetUrl = token
         ? `${API_BASE}/api/rfid/live-token/${token}?_t=${Date.now()}`
         : `${API_BASE}/api/rfid/live/${tagCode}?_t=${Date.now()}`;

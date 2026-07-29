@@ -45,6 +45,14 @@ export default function PathMapCanvas({ liveData }) {
     .join(" ");
 
   const startPoint = remainingReaders[0]?.coords || defaultReaders[0].coords;
+  const nextPoint = remainingReaders[1]?.coords;
+
+  let arrowAngle = 0;
+  if (startPoint && nextPoint) {
+    const dx = ((nextPoint.x - startPoint.x) / 100) * 1000;
+    const dy = ((nextPoint.y - startPoint.y) / 100) * 700;
+    arrowAngle = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+  }
 
   const handleZoomIn = () => setZoom((z) => Math.min(z + 0.4, 5.0));
   const handleZoomOut = () => {
@@ -201,10 +209,10 @@ export default function PathMapCanvas({ liveData }) {
               );
             })}
 
-            {/* Directional Arrow at Current Location */}
+            {/* Directional Arrow at Current Location (Rotated towards upcoming path) */}
             {remainingReaders.length > 1 && (
-              <g transform={`translate(${(startPoint.x / 100) * 1000}, ${(startPoint.y / 100) * 700})`}>
-                <polygon points="-8,6 0,-14 8,6 0,2" fill="#0ea5e9" />
+              <g transform={`translate(${(startPoint.x / 100) * 1000}, ${(startPoint.y / 100) * 700}) rotate(${arrowAngle})`}>
+                <polygon points="-8,6 0,-14 8,6 0,2" fill="#0ea5e9" stroke="#ffffff" strokeWidth="1.5" />
               </g>
             )}
           </svg>
