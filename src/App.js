@@ -14,10 +14,10 @@ export default function App() {
 
   const fetchLivePath = useCallback(async () => {
     try {
-      // Determine endpoint based on whether ?token= or ?tagCode= is passed in URL
+      const API_BASE = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:7000`;
       const targetUrl = token
-        ? `http://192.168.20.10:7000/api/rfid/live-token/${token}?_t=${Date.now()}`
-        : `http://192.168.20.10:7000/api/rfid/live/${tagCode}?_t=${Date.now()}`;
+        ? `${API_BASE}/api/rfid/live-token/${token}?_t=${Date.now()}`
+        : `${API_BASE}/api/rfid/live/${tagCode}?_t=${Date.now()}`;
 
       const response = await fetch(targetUrl, {
         headers: {

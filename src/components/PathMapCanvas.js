@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import defaultReaders from "../config/rfidReaders.json";
 import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
@@ -9,6 +9,27 @@ export default function PathMapCanvas({ liveData }) {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
+
+  // Non-passive wheel event listener to fix Chrome/React preventDefault error
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheelListener = (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.2 : -0.2;
+      setZoom((z) => {
+        const nextZ = Math.min(Math.max(z + delta, 1.0), 5.0);
+        if (nextZ === 1.0) setPan({ x: 0, y: 0 });
+        return nextZ;
+      });
+    };
+
+    container.addEventListener("wheel", handleWheelListener, { passive: false });
+    return () => {
+      container.removeEventListener("wheel", handleWheelListener);
+    };
+  }, []);
 
   // Fallback to defaultReaders if liveData is loading or empty
   const allReaders = (liveData?.allReaders && liveData.allReaders.length > 0) ? liveData.allReaders : defaultReaders;
@@ -33,21 +54,6 @@ export default function PathMapCanvas({ liveData }) {
       return nextZ;
     });
   };
-  const handleResetZoom = () => {
-    setZoom(1.0);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.2 : -0.2;
-    setZoom((z) => {
-      const nextZ = Math.min(Math.max(z + delta, 1.0), 5.0);
-      if (nextZ === 1.0) setPan({ x: 0, y: 0 });
-      return nextZ;
-    });
-  };
-
   const handleMouseDown = (e) => {
     if (zoom > 1 && e.button === 0) {
       setIsDragging(true);
@@ -87,7 +93,6 @@ export default function PathMapCanvas({ liveData }) {
       {/* Interactive Map Graphic SVG Overlay Container */}
       <div
         ref={containerRef}
-        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
