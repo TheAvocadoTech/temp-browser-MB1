@@ -54,6 +54,11 @@ export default function PathMapCanvas({ liveData }) {
       return nextZ;
     });
   };
+
+  const handleResetZoom = () => {
+    setZoom(1.0);
+    setPan({ x: 0, y: 0 });
+  };
   const handleMouseDown = (e) => {
     if (zoom > 1 && e.button === 0) {
       setIsDragging(true);
