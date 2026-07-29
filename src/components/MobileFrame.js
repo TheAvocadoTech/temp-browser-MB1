@@ -44,7 +44,7 @@ export default function MobileFrame({ children }) {
         {/* EQUINIX Logo */}
         <div style={{ display: "flex", alignItems: "center" }}>
           <img
-            src="/equinix-logo.png"
+            src={`${process.env.PUBLIC_URL}/equinix-logo.png`}
             alt="EQUINIX Logo"
             style={{ height: "24px", maxWidth: "200px", objectFit: "contain" }}
           />

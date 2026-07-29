@@ -121,7 +121,7 @@ export default function PathMapCanvas({ liveData }) {
             }}
           >
             {/* PDF Floorplan Background Image */}
-            <image href="/map_floorplan.png" x="0" y="0" width="1000" height="700" preserveAspectRatio="xMidYMid meet" />
+            <image href={`${process.env.PUBLIC_URL}/map_floorplan.png`} x="0" y="0" width="1000" height="700" preserveAspectRatio="xMidYMid meet" />
 
             {/* Thin Gray Background Line for Total Path */}
             <polyline
