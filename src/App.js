@@ -19,12 +19,7 @@ export default function App() {
         ? `${API_BASE}/api/rfid/live-token/${token}?_t=${Date.now()}`
         : `${API_BASE}/api/rfid/live/${tagCode}?_t=${Date.now()}`;
 
-      const response = await fetch(targetUrl, {
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-        },
-      });
+      const response = await fetch(targetUrl);
 
       if (response.ok) {
         const json = await response.json();
