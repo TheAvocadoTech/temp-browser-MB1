@@ -19,7 +19,7 @@ export default function App() {
         `${window.location.protocol}//${window.location.hostname}:7000`;
       const targetUrl = token
         ? `${API_BASE}/api/rfid/live-token/${token}?_t=${Date.now()}`
-        : `${API_BASE}/api/rfid/live/${tagCode}?_t=${Date.now()}`;
+        : `${API_BASE}/api/rfid/live/${tagCode || ""}?_t=${Date.now()}`;
 
       const response = await fetch(targetUrl);
 
