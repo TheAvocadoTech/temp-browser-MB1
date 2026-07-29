@@ -16,8 +16,8 @@ export default function App() {
     try {
       // Determine endpoint based on whether ?token= or ?tagCode= is passed in URL
       const targetUrl = token
-        ? `http://localhost:3000/api/rfid/live-token/${token}?_t=${Date.now()}`
-        : `http://localhost:3000/api/rfid/live/${tagCode}?_t=${Date.now()}`;
+        ? `http://192.168.20.10:8000/api/rfid/live-token/${token}?_t=${Date.now()}`
+        : `http://192.168.20.10:8000/api/rfid/live/${tagCode}?_t=${Date.now()}`;
 
       const response = await fetch(targetUrl, {
         headers: {
