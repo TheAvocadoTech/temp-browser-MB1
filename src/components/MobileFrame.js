@@ -41,22 +41,13 @@ export default function MobileFrame({ children }) {
           }}
         />
 
-        {/* AVOCADO Logo Text & Tagline */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {/* Green Leaf Logo Graphic */}
-          <svg width="32" height="32" viewBox="0 0 40 40" fill="none">
-            <circle cx="20" cy="20" r="18" fill="#658348" />
-            <path d="M 14 26 C 14 16 26 14 26 14 C 26 24 16 26 14 26 Z" fill="#ffffff" />
-            <circle cx="18" cy="18" r="3" fill="#658348" />
-          </svg>
-          <div>
-            <div style={{ fontSize: "17px", fontWeight: "800", color: "#658348", letterSpacing: "0.08em", lineHeight: "1" }}>
-              AVOCADO
-            </div>
-            <div style={{ fontSize: "9px", fontWeight: "600", color: "#658348", letterSpacing: "0.04em" }}>
-              From seed to screen
-            </div>
-          </div>
+        {/* EQUINIX Logo */}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <img
+            src="/equinix-logo.png"
+            alt="EQUINIX Logo"
+            style={{ height: "24px", maxWidth: "200px", objectFit: "contain" }}
+          />
         </div>
       </div>
 
