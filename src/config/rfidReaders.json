@@ -6,7 +6,6 @@
     "sr": "003",
     "ser": "20.10",
     "location": "Reception",
-    "port": 9000,
     "coords": { "x": 19.9, "y": 40.9 }
   },
   {
@@ -16,7 +15,6 @@
     "sr": "006",
     "ser": "20.10",
     "location": "Man Trap",
-    "port": 9000,
     "coords": { "x": 20.9, "y": 35 }
   },
   {
@@ -26,7 +24,6 @@
     "sr": "002",
     "ser": "20.10",
     "location": "Above Colo-3 Door",
-    "port": 9000,
     "coords": { "x": 22.3, "y": 30.3 }
   },
   {
@@ -36,7 +33,6 @@
     "sr": "0011",
     "ser": "20.10",
     "location": "Bom 12 Main Entry Door",
-    "port": 9000,
     "coords": { "x": 22.7, "y": 39.3 }
   },
   {
@@ -53,7 +49,6 @@
     "sr": "001",
     "ser": "20.10",
     "location": "NOC ROOM Door",
-    "port": 9000,
     "coords": { "x": 29.5, "y": 44.9 }
   },
   {
@@ -63,7 +58,6 @@
     "sr": "0013",
     "ser": "20.10",
     "location": "Front of VSR Door",
-    "port": 9000,
     "coords": { "x": 34.4, "y": 45 }
   },
   {
@@ -73,7 +67,6 @@
     "sr": "004",
     "ser": "20.10",
     "location": "Front of Carrier A Door",
-    "port": 9000,
     "coords": { "x": 38.7, "y": 45.6 }
   },
   {
@@ -83,7 +76,6 @@
     "sr": "005",
     "ser": "20.10",
     "location": "Loding Gate Door",
-    "port": 9000,
     "coords": { "x": 47.4, "y": 45.4 }
   },
   {
@@ -93,7 +85,6 @@
     "sr": "0010",
     "ser": "20.10",
     "location": "Above Colo-2 Door",
-    "port": 9000,
     "coords": { "x": 46.5, "y": 39.8 }
   },
   {
@@ -103,7 +94,6 @@
     "sr": "008",
     "ser": "20.10",
     "location": "Colo-1-2 passage 1",
-    "port": 9000,
     "coords": { "x": 52, "y": 39.8 }
   },
   {
@@ -113,7 +103,6 @@
     "sr": "0014",
     "ser": "20.10",
     "location": "Colo-1-2 passage 2",
-    "port": 9000,
     "coords": { "x": 56.8, "y": 39.8 }
   },
   {
@@ -123,7 +112,6 @@
     "sr": "009",
     "ser": "20.10",
     "location": "Colo-1 Entry",
-    "port": 9000,
     "coords": { "x": 61.8, "y": 40.3 }
   },
   {
@@ -133,7 +121,6 @@
     "sr": "007",
     "ser": "20.10",
     "location": "Facing Toward Row 5-6",
-    "port": 9000,
     "coords": { "x": 61.8, "y": 44.3 }
   },
   {
@@ -143,7 +130,6 @@
     "sr": "0012",
     "ser": "20.10",
     "location": "First Reader of Row 5,6",
-    "port": 9000,
     "coords": { "x": 66.6, "y": 44.3 }
   },
   {
@@ -153,7 +139,6 @@
     "sr": "0015",
     "ser": "20.10",
     "location": "Cabinate End Point",
-    "port": 9000,
     "coords": { "x": 70.3, "y": 44.4 }
   }
 ]

@@ -36,8 +36,8 @@ export default function App() {
 
   useEffect(() => {
     fetchLivePath();
-    // Fast 1000ms polling interval ensures real-time map updates
-    const interval = setInterval(fetchLivePath, 1000);
+    // Fast 300ms polling interval ensures real-time map updates
+    const interval = setInterval(fetchLivePath, 300);
     return () => clearInterval(interval);
   }, [fetchLivePath]);
 
