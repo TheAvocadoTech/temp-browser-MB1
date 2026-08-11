@@ -4,10 +4,13 @@
   "private": true,
   "homepage": "/temp",
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.17.14",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "three": "^0.167.1"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -32,5 +35,4 @@
       "last 1 safari version"
     ]
   }
-  
 }

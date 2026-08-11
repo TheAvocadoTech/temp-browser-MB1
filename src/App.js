@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import MobileFrame from "./components/MobileFrame";
-import PathMapCanvas from "./components/PathMapCanvas";
+import Map3DCanvas from "./components/Map3DCanvas";
 
 export default function App() {
   // Parse URL Query parameters: ?token=VTK_... or ?tagCode=E28011B0...
@@ -55,8 +55,14 @@ export default function App() {
       }}
     >
       <MobileFrame>
-        <PathMapCanvas liveData={liveData} />
+        {/* 3D Navigation Canvas Container */}
+        <div style={{ width: "100%", height: "100%", position: "relative" }}>
+          <Map3DCanvas liveData={liveData} />
+        </div>
       </MobileFrame>
     </div>
   );
 }
+
+
+
