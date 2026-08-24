@@ -3,7 +3,7 @@ import React, { Suspense, useMemo, useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useTexture, Html, useProgress, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { Navigation, LocateFixed } from "lucide-react";
+import { LocateFixed } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
 import transform from "../config/mapTransform.json";
 
