@@ -20,8 +20,8 @@ export default function App() {
   const [hasClosedMap, setHasClosedMap] = useState(false);
 
   const fetchLivePath = useCallback(async () => {
-    // If session was closed or expired, halt polling
-    if (isSessionExpired || hasClosedMap) return;
+    // If session was expired, halt polling
+    if (isSessionExpired) return;
 
     try {
       const API_BASE =
@@ -67,7 +67,6 @@ export default function App() {
   const handleCloseMap = () => {
     setShowDestinationModal(false);
     setHasClosedMap(true);
-    setIsSessionExpired(true);
   };
 
   const handleRecheckSession = () => {

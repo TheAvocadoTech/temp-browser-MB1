@@ -127,7 +127,7 @@ export default function DestinationModal({ visitorName, tagCode, company, onClos
           )}
         </div>
 
-        {/* Close Map Button */}
+        {/* Continue to Map Button */}
         <button
           onClick={onClose}
           style={{
@@ -151,7 +151,7 @@ export default function DestinationModal({ visitorName, tagCode, company, onClos
           onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "#0ea5e9")}
         >
           <XCircle size={18} />
-          <span>Close Map</span>
+          <span>Continue to Map</span>
         </button>
       </div>
     </div>
