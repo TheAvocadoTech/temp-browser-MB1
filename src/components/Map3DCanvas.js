@@ -11,13 +11,32 @@ import transform from "../config/mapTransform.json";
 const FLOOR_WIDTH = 40;
 const FLOOR_DEPTH = 28;
 
-function pctToWorld(x, y, elevation = 0.3) {
-  return [
-    (x / 100) * FLOOR_WIDTH - FLOOR_WIDTH / 2,
-    elevation,
-    (y / 100) * FLOOR_DEPTH - FLOOR_DEPTH / 2,
-  ];
-}
+// Keeps your correct reader-to-reader distance scaling
+const SCALE_X = 1.0;
+const SCALE_Z = 1.0;
+
+// Re-anchored origins to translate the start point directly onto the marked red spot
+const BASE_SCALE = 0.55;
+const BASE_ORIGIN_X = -6.3; // Decreased from -8.8 to slide path LEFT into the room
+const BASE_ORIGIN_Z = -3.7;  // Increased from -4.3 to slide path DOWN into the hallway
+
+// Average percentage center of your map path coordinates
+const CENTER_X_PCT = 50; 
+const CENTER_Y_PCT = 50; 
+
+// Automatically re-anchor origin without altering relative spacing
+const ORIGIN_X = BASE_ORIGIN_X - (CENTER_X_PCT / 100) * FLOOR_WIDTH * (SCALE_X - BASE_SCALE);
+const ORIGIN_Z = BASE_ORIGIN_Z - (CENTER_Y_PCT / 100) * FLOOR_DEPTH * (SCALE_Z - BASE_SCALE);
+
+/**
+ * Maps percentage coords accurately onto the 3D floor plan
+ */
+export const pctToWorld = (xPct, yPct, height = 0.15) => {
+  const worldX = (xPct / 100) * (FLOOR_WIDTH * SCALE_X) + ORIGIN_X;
+  const worldZ = (yPct / 100) * (FLOOR_DEPTH * SCALE_Z) + ORIGIN_Z;
+
+  return [worldX, height, worldZ];
+};
 
 function Loader() {
   const { progress } = useProgress();
