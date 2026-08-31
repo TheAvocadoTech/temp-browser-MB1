@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 import MobileFrame from "./components/MobileFrame";
+import PathMapCanvas from "./components/PathMapCanvas";
 import Map3DCanvas from "./components/Map3DCanvas";
 import DestinationModal from "./components/DestinationModal";
 import SessionExpiredScreen from "./components/SessionExpiredScreen";
+import { Layers, Box } from "lucide-react";
 
 export default function App() {
   // Parse URL Query parameters: ?token=VTK_... or ?tagCode=V002
@@ -13,6 +15,9 @@ export default function App() {
   const [token] = useState(tokenParam || null);
   const [tagCode] = useState(tagCodeParam || "V002");
   const [liveData, setLiveData] = useState(null);
+
+  // Map Mode: "2D" (default blueprint dotted map) or "3D" (3D facility view)
+  const [mapMode, setMapMode] = useState("2D");
 
   // Session & Arrival Overlay States
   const [showDestinationModal, setShowDestinationModal] = useState(false);
@@ -88,13 +93,78 @@ export default function App() {
       }}
     >
       <MobileFrame>
-        <div style={{ width: "100%", height: "100%", position: "relative" }}>
+        <div style={{ width: "100%", height: "100%", position: "relative", display: "flex", flexDirection: "column" }}>
           {isSessionExpired ? (
             <SessionExpiredScreen onRecheck={handleRecheckSession} />
           ) : (
             <>
-              {/* 3D Navigation Canvas Container */}
-              <Map3DCanvas liveData={liveData} />
+              {/* ── Floating 2D / 3D Mode Toggle ── */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: "12px",
+                  right: "120px",
+                  zIndex: 30,
+                  display: "flex",
+                  alignItems: "center",
+                  backgroundColor: "rgba(255, 255, 255, 0.95)",
+                  backdropFilter: "blur(8px)",
+                  borderRadius: "12px",
+                  padding: "3px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                }}
+              >
+                <button
+                  onClick={() => setMapMode("2D")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    border: "none",
+                    borderRadius: "9px",
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: mapMode === "2D" ? "700" : "600",
+                    color: mapMode === "2D" ? "#ffffff" : "#64748b",
+                    backgroundColor: mapMode === "2D" ? "#0284c7" : "transparent",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <Layers size={14} />
+                  <span>2D Map</span>
+                </button>
+                <button
+                  onClick={() => setMapMode("3D")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    border: "none",
+                    borderRadius: "9px",
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: mapMode === "3D" ? "700" : "600",
+                    color: mapMode === "3D" ? "#ffffff" : "#64748b",
+                    backgroundColor: mapMode === "3D" ? "#0284c7" : "transparent",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <Box size={14} />
+                  <span>3D Map</span>
+                </button>
+              </div>
+
+              {/* ── Active Map View ── */}
+              <div style={{ width: "100%", height: "100%", flex: 1, position: "relative" }}>
+                {mapMode === "2D" ? (
+                  <PathMapCanvas liveData={liveData} />
+                ) : (
+                  <Map3DCanvas liveData={liveData} />
+                )}
+              </div>
 
               {/* Destination Reached Modal Overlay */}
               {showDestinationModal && (

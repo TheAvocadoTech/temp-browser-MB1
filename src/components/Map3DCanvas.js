@@ -138,6 +138,90 @@ function isTurnPoint(readers, i, threshold = 25) {
   return diff > threshold;
 }
 
+function LiveLocationDropMarker({ coords }) {
+  const pinGroupRef = useRef();
+  const pulseRef = useRef();
+
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+    if (pinGroupRef.current) {
+      // Smooth hovering up and down
+      pinGroupRef.current.position.y = 1.0 + Math.sin(t * 3.5) * 0.12;
+      // Gentle subtle rotation
+      pinGroupRef.current.rotation.y = Math.sin(t * 1.5) * 0.25;
+    }
+    if (pulseRef.current) {
+      // Expanding floor ripple
+      const progress = (t * 1.2) % 1;
+      const scale = 1 + progress * 1.6;
+      const opacity = Math.max(0, 0.5 * (1 - progress));
+      pulseRef.current.scale.set(scale, scale, scale);
+      if (pulseRef.current.material) {
+        pulseRef.current.material.opacity = opacity;
+      }
+    }
+  });
+
+  if (!coords) return null;
+  const [wx, wy, wz] = pctToWorld(coords.x, coords.y, 0.05);
+
+  return (
+    <group position={[wx, wy, wz]}>
+      {/* ── Ground Contact Ring & Pulsing Ripple ── */}
+      <group position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        {/* Soft shadow disc under pin tip */}
+        <mesh>
+          <circleGeometry args={[0.32, 32]} />
+          <meshBasicMaterial color="#000000" opacity={0.35} transparent depthWrite={false} />
+        </mesh>
+        {/* Floor landing dot */}
+        <mesh>
+          <circleGeometry args={[0.12, 24]} />
+          <meshBasicMaterial color="#22c55e" depthWrite={false} />
+        </mesh>
+        {/* Expanding pulse ripple */}
+        <mesh ref={pulseRef}>
+          <ringGeometry args={[0.25, 0.42, 32]} />
+          <meshBasicMaterial color="#22c55e" opacity={0.5} transparent depthWrite={false} />
+        </mesh>
+      </group>
+
+      {/* ── Hovering 3D Drop Location Pin (Green) ── */}
+      <group ref={pinGroupRef} position={[0, 1.0, 0]}>
+        {/* Pin Top (Sphere) */}
+        <mesh position={[0, 0.5, 0]} castShadow>
+          <sphereGeometry args={[0.36, 32, 32]} />
+          <meshStandardMaterial
+            color="#22c55e"
+            roughness={0.2}
+            metalness={0.15}
+            emissive="#15803d"
+            emissiveIntensity={0.3}
+          />
+        </mesh>
+
+        {/* Pin Bottom Cone (Pointing down towards floor) */}
+        <mesh position={[0, 0.18, 0]} rotation={[Math.PI, 0, 0]} castShadow>
+          <coneGeometry args={[0.36, 0.68, 32]} />
+          <meshStandardMaterial
+            color="#22c55e"
+            roughness={0.2}
+            metalness={0.15}
+            emissive="#15803d"
+            emissiveIntensity={0.3}
+          />
+        </mesh>
+
+        {/* Inner White Core Disc / Dot */}
+        <mesh position={[0, 0.5, 0]}>
+          <sphereGeometry args={[0.15, 24, 24]} />
+          <meshBasicMaterial color="#ffffff" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function FlatPathLayer({ liveData }) {
   const apiReaders    = (liveData?.allReaders?.length) ? liveData.allReaders : defaultReaders;
   const currentReader = liveData?.currentReader || defaultReaders[0];
@@ -151,6 +235,10 @@ function FlatPathLayer({ liveData }) {
     });
   }, [apiReaders]);
 
+  const passedReaders = useMemo(() => {
+    return allReaders.filter((r) => r.sequence <= currentSeq);
+  }, [allReaders, currentSeq]);
+
   const remainingReaders = useMemo(() => {
     return allReaders.filter((r) => r.sequence >= currentSeq);
   }, [allReaders, currentSeq]);
@@ -160,65 +248,70 @@ function FlatPathLayer({ liveData }) {
     return allReaders.map((r) => pctToWorld(r.coords.x, r.coords.y, 0.12));
   }, [allReaders]);
 
+  const passedPoints3D = useMemo(() => {
+    return passedReaders.map((r) => pctToWorld(r.coords.x, r.coords.y, 0.14));
+  }, [passedReaders]);
+
   const remainingPoints3D = useMemo(() => {
-    return remainingReaders.map((r) => pctToWorld(r.coords.x, r.coords.y, 0.14));
+    return remainingReaders.map((r) => pctToWorld(r.coords.x, r.coords.y, 0.15));
   }, [remainingReaders]);
 
   return (
     <group>
-      {/* ── 1. Full ghost path line (dim gray) flat on 3D floor ── */}
+      {/* ── 1. Full faint path underlay on 3D floor ── */}
       {allPoints3D.length > 1 && (
         <Line
           points={allPoints3D}
-          color="#9ca3af"
-          opacity={0.4}
+          color="#cbd5e1"
+          opacity={0.3}
           transparent
-          lineWidth={2.5}
+          lineWidth={2}
         />
       )}
 
-      {/* ── 2. Active remaining path line (glowing cyan) ── */}
+      {/* ── 2. Completed Path (Passed segments) — Grey Dashed Line ── */}
+      {passedPoints3D.length > 1 && (
+        <Line
+          points={passedPoints3D}
+          color="#94a3b8"
+          lineWidth={4}
+          dashed
+          dashScale={2}
+          dashSize={0.6}
+          gapSize={0.4}
+        />
+      )}
+
+      {/* ── 3. Active Remaining Path — Glowing Cyan Dashed Line ── */}
       {remainingPoints3D.length > 1 && (
         <>
           {/* Outer glow line */}
           <Line
             points={remainingPoints3D}
             color="#0ea5e9"
-            opacity={0.3}
+            opacity={0.35}
             transparent
-            lineWidth={7}
+            lineWidth={8}
           />
           {/* Core Line */}
           <Line
             points={remainingPoints3D}
-            color="#0ea5e9"
-            lineWidth={2.5}
+            color="#0284c7"
+            lineWidth={4.5}
+            dashed
+            dashScale={2}
+            dashSize={0.6}
+            gapSize={0.4}
           />
         </>
       )}
 
-      {/* ── 3. Current Active Reader Pulsing Ring ── */}
-      {allReaders.map((r) => {
-        if (r.isWaypoint) return null;
-        const [wx, wy, wz] = pctToWorld(r.coords.x, r.coords.y, 0.16);
-        const isCurrent = r.sequence === currentSeq;
+      {/* ── 4. Live Location 3D Drop Pin Marker ── */}
+      <LiveLocationDropMarker
+        coords={currentReader.coords}
+        readerName={currentReader.location}
+      />
 
-        if (!isCurrent) return null;
-
-        return (
-          <group key={r.id} position={[wx, wy, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-            {/* Pulsing ring flat on floor for current active location */}
-            <mesh>
-              <circleGeometry args={[0.8, 32]} />
-              <meshBasicMaterial color="#84cc16" opacity={0.22} transparent />
-            </mesh>
-            <mesh>
-              <ringGeometry args={[0.4, 0.48, 32]} />
-              <meshBasicMaterial color="#84cc16" />
-            </mesh>
-          </group>
-        );
-      })}
 
       {/* ── 4. Turn Chevrons flat on 3D floor at direction-change points ── */}
       {allReaders.map((r, i) => {
@@ -278,13 +371,13 @@ function FlatPathLayer({ liveData }) {
 
 /**
  * Navigation Camera Controller Component
- * Handles path-oriented 3D camera auto-follow and user manual interaction state
+ * Keeps full facility map visible in overview with smooth recenter and interactive orbit
  */
-function NavigationCameraController({ currentCoords, nextCoords, isManualCamera, setIsManualCamera, recenterTrigger }) {
+function NavigationCameraController({ isManualCamera, setIsManualCamera, recenterTrigger }) {
   const { camera } = useThree();
   const controlsRef = useRef();
-  const targetVec = useRef(new THREE.Vector3());
-  const camVec = useRef(new THREE.Vector3());
+  const targetVec = useRef(new THREE.Vector3(0, 0, 0));
+  const camVec = useRef(new THREE.Vector3(0, 36, 26));
 
   // Listen to OrbitControls start event (fired when user drags/pans/rotates/zooms manually)
   useEffect(() => {
@@ -311,30 +404,10 @@ function NavigationCameraController({ currentCoords, nextCoords, isManualCamera,
   useFrame((state, delta) => {
     if (isManualCamera) return;
 
-    // Current live location 3D point
-    const [cx, cy, cz] = pctToWorld(currentCoords.x, currentCoords.y, 0.3);
+    targetVec.current.set(0, 0, 0);
+    camVec.current.set(0, 36, 26);
 
-    // Compute heading towards next waypoint (or fallback default orientation)
-    let heading = 0;
-    if (nextCoords) {
-      const dx = ((nextCoords.x - currentCoords.x) / 100) * FLOOR_WIDTH;
-      const dz = ((nextCoords.y - currentCoords.y) / 100) * FLOOR_DEPTH;
-      if (Math.hypot(dx, dz) > 0.1) {
-        heading = Math.atan2(dx, dz);
-      }
-    }
-
-    // Increased zoom navigation perspective: camera distance = 8.5, height = 7.5, pitched towards target
-    const camDist = 8.5;
-    const camHeight = 7.5;
-    const desiredCamX = cx - Math.sin(heading) * camDist;
-    const desiredCamY = cy + camHeight;
-    const desiredCamZ = cz - Math.cos(heading) * camDist;
-
-    targetVec.current.set(cx, cy, cz);
-    camVec.current.set(desiredCamX, desiredCamY, desiredCamZ);
-
-    const lerpFactor = Math.min(1.0, delta * 4.5);
+    const lerpFactor = Math.min(1.0, delta * 3.5);
 
     if (controlsRef.current) {
       controlsRef.current.target.lerp(targetVec.current, lerpFactor);
@@ -350,8 +423,8 @@ function NavigationCameraController({ currentCoords, nextCoords, isManualCamera,
       enableDamping
       dampingFactor={0.05}
       maxPolarAngle={Math.PI / 2 - 0.02}
-      minDistance={2}
-      maxDistance={75}
+      minDistance={5}
+      maxDistance={90}
     />
   );
 }
@@ -362,13 +435,6 @@ export default function Map3DCanvas({ liveData, liveTransform, showFloorplan = f
   const currentSeq    = currentReader.sequence || 1;
   const totalStops    = allReaders.filter((r) => !r.isWaypoint).length;
   const progressPct   = totalStops > 1 ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100) : 0;
-
-  const remainingReaders = useMemo(() => {
-    return allReaders.filter((r) => r.sequence >= currentSeq);
-  }, [allReaders, currentSeq]);
-
-  const currentCoords = currentReader.coords;
-  const nextCoords    = remainingReaders.length > 1 ? remainingReaders[1].coords : null;
 
   // Manual camera state & Recenter trigger
   const [isManualCamera, setIsManualCamera] = useState(false);
@@ -381,7 +447,7 @@ export default function Map3DCanvas({ liveData, liveTransform, showFloorplan = f
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: "#f8fafc" }}>
-      <Canvas camera={{ position: [0, 25, 25], fov: 45 }}>
+      <Canvas camera={{ position: [0, 36, 26], fov: 45 }}>
         <ambientLight intensity={0.8} />
         <directionalLight position={[15, 30, 15]} intensity={1.2} castShadow />
         <directionalLight position={[-15, 20, -15]} intensity={0.5} />
@@ -390,8 +456,6 @@ export default function Map3DCanvas({ liveData, liveTransform, showFloorplan = f
           <FacilityModel liveTransform={liveTransform} />
           <FlatPathLayer liveData={liveData} />
           <NavigationCameraController
-            currentCoords={currentCoords}
-            nextCoords={nextCoords}
             isManualCamera={isManualCamera}
             setIsManualCamera={setIsManualCamera}
             recenterTrigger={recenterTrigger}

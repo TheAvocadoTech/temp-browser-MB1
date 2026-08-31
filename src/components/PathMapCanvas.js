@@ -10,13 +10,13 @@ function angleBetween(a, b) {
   return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
 
-// Returns true if the path at index i makes a meaningful turn (default > 25°)
+// Returns true if the path at index i makes a meaningful turn (> 25°)
 function isTurnPoint(readers, i, threshold = 25) {
   if (i < 1 || i >= readers.length - 1) return false;
   const prev = readers[i - 1].coords;
   const curr = readers[i].coords;
   const next = readers[i + 1].coords;
-  const inAngle  = angleBetween(prev, curr);
+  const inAngle = angleBetween(prev, curr);
   const outAngle = angleBetween(curr, next);
   let diff = Math.abs(outAngle - inAngle);
   if (diff > 180) diff = 360 - diff;
@@ -24,8 +24,7 @@ function isTurnPoint(readers, i, threshold = 25) {
 }
 
 // Open chevron path pointing RIGHT (0°) — rotated via SVG transform
-// Looks like a road "turn" sign: two lines meeting at a tip, no fill
-const CHEVRON_PATH = "M -8,-5 L 0,5 L 8,-5";
+const CHEVRON_PATH = "M -10,-6 L 0,6 L 10,-6";
 
 export default function PathMapCanvas({ liveData }) {
   // Zoom & Pan state
@@ -57,10 +56,9 @@ export default function PathMapCanvas({ liveData }) {
   }, []);
 
   // ── Data ─────────────────────────────────────────────────────────────────
-  // Use live API readers if available, otherwise fall back to local JSON
-  const apiReaders    = (liveData?.allReaders?.length) ? liveData.allReaders : defaultReaders;
+  const apiReaders = liveData?.allReaders?.length ? liveData.allReaders : defaultReaders;
   const currentReader = liveData?.currentReader || defaultReaders[0];
-  const currentSeq    = currentReader.sequence || 1;
+  const currentSeq = currentReader.sequence || 1;
 
   // Merge local coords onto live data so edits to rfidReaders.json take effect
   const allReaders = apiReaders.map((r) => {
@@ -68,13 +66,16 @@ export default function PathMapCanvas({ liveData }) {
     return local ? { ...r, coords: local.coords, location: local.location } : r;
   });
 
+  // Split path into completed (passed) and active (remaining)
+  const passedReaders = allReaders.filter((r) => r.sequence <= currentSeq);
   const remainingReaders = allReaders.filter((r) => r.sequence >= currentSeq);
 
   // SVG coordinate helpers (viewBox 1000 × 700)
   const px = (x) => (x / 100) * 1000;
   const py = (y) => (y / 100) * 700;
 
-  const allPoints       = allReaders.map((r)       => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
+  const allPoints = allReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
+  const passedPoints = passedReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
   const remainingPoints = remainingReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
 
   // Leading arrow direction (current → next)
@@ -82,10 +83,24 @@ export default function PathMapCanvas({ liveData }) {
   const nextPt = remainingReaders[1]?.coords;
   const leadArrowAngle = currPt && nextPt ? angleBetween(currPt, nextPt) + 90 : 0;
 
+  const totalStops = allReaders.filter((r) => !r.isWaypoint).length;
+  const currentStopIndex = allReaders.filter((r) => !r.isWaypoint && r.sequence <= currentSeq).length;
+
+  // Destination (final reader)
+  const destinationReader = allReaders[allReaders.length - 1];
+
   // ── Controls ──────────────────────────────────────────────────────────────
-  const handleZoomIn  = () => setZoom((z) => Math.min(z + 0.4, 5.0));
-  const handleZoomOut = () => setZoom((z) => { const n = Math.max(z - 0.4, 1.0); if (n === 1.0) setPan({ x: 0, y: 0 }); return n; });
-  const handleReset   = () => { setZoom(1.0); setPan({ x: 0, y: 0 }); };
+  const handleZoomIn = () => setZoom((z) => Math.min(z + 0.4, 5.0));
+  const handleZoomOut = () =>
+    setZoom((z) => {
+      const n = Math.max(z - 0.4, 1.0);
+      if (n === 1.0) setPan({ x: 0, y: 0 });
+      return n;
+    });
+  const handleReset = () => {
+    setZoom(1.0);
+    setPan({ x: 0, y: 0 });
+  };
 
   const handleMouseDown = (e) => {
     if (zoom > 1 && e.button === 0) {
@@ -109,7 +124,7 @@ export default function PathMapCanvas({ liveData }) {
         overflow: "hidden",
         boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
         border: "1px solid #e5e7eb",
-        fontFamily: "Inter, sans-serif",
+        fontFamily: "Inter, system-ui, sans-serif",
         display: "flex",
         flexDirection: "column",
       }}
@@ -125,9 +140,14 @@ export default function PathMapCanvas({ liveData }) {
           flex: 1,
           position: "relative",
           width: "100%",
+          height: "100%",
           minHeight: 0,
           cursor: zoom > 1 ? (isDragging ? "grabbing" : "grab") : "default",
           overflow: "hidden",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#f8fafc",
         }}
       >
         {/* Zoom & Pan Wrapper Element */}
@@ -138,142 +158,129 @@ export default function PathMapCanvas({ liveData }) {
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: "center center",
             transition: isDragging ? "none" : "transform 0.15s ease-out",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
           <svg
             viewBox="0 0 1000 700"
-            style={{ width: "100%", height: "100%", display: "block", objectFit: "contain" }}
+            preserveAspectRatio="xMidYMid meet"
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+              objectFit: "contain",
+              maxWidth: "100%",
+              maxHeight: "100%",
+            }}
           >
-            {/* Floorplan background */}
-            <image href={`${process.env.PUBLIC_URL}/map_floorplan.png`} x="0" y="0" width="1000" height="700" preserveAspectRatio="xMidYMid meet" />
+            {/* Defs: Drop shadows, gradients, and filters */}
+            <defs>
+              <filter id="path-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+              <filter id="node-shadow" x="-50%" y="-50%" width="200%" height="200%">
+                <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0f172a" floodOpacity="0.25" />
+              </filter>
+            </defs>
 
-            {/* ── Full ghost path (dim gray) ── */}
+            {/* Floorplan background */}
+            <image
+              href={`${process.env.PUBLIC_URL}/map_floorplan.png`}
+              x="0"
+              y="0"
+              width="1000"
+              height="700"
+              preserveAspectRatio="xMidYMid meet"
+            />
+
+            {/* ── 1. Background guide track line (subtle underlying channel) ── */}
             <polyline
               points={allPoints}
               fill="none"
-              stroke="rgba(156,163,175,0.4)"
-              strokeWidth="2.5"
+              stroke="rgba(148, 163, 184, 0.15)"
+              strokeWidth="6"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
 
-            {/* ── Active remaining path (glowing cyan) ── */}
+            {/* ── 2. Completed Path (Passed segments) — Grey Dotted Thin Crisp Line ── */}
+            {passedReaders.length > 1 && (
+              <polyline
+                points={passedPoints}
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth="3.5"
+                strokeDasharray="1 7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.85"
+              />
+            )}
+
+            {/* ── 3. Active Remaining Path — Vivid Cyan Dotted Thin Crisp Line ── */}
             {remainingReaders.length > 1 && (
               <>
-                {/* Outer glow */}
+                {/* Subtle Glow */}
                 <polyline
                   points={remainingPoints}
                   fill="none"
-                  stroke="rgba(14,165,233,0.32)"
-                  strokeWidth="7"
+                  stroke="rgba(14, 165, 233, 0.25)"
+                  strokeWidth="8"
+                  strokeDasharray="1 7"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                {/* Core line */}
+                {/* Core Active Dotted Line (Thin & Sharp) */}
                 <polyline
                   points={remainingPoints}
                   fill="none"
-                  stroke="#0ea5e9"
-                  strokeWidth="2.5"
+                  stroke="#0284c7"
+                  strokeWidth="3.5"
+                  strokeDasharray="1 7"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
               </>
             )}
 
-            {/* ── Reader markers & location labels (NO bubbles) ── */}
-            {allReaders.map((r) => {
-              if (r.isWaypoint) return null;
-              const cx = px(r.coords.x);
-              const cy = py(r.coords.y);
-              const isPassed  = r.sequence < currentSeq;
-              const isCurrent = r.sequence === currentSeq;
-
-              const dotColor   = isCurrent ? "#16a34a" : isPassed ? "#9ca3af" : "#0ea5e9";
-              const dotOpacity = isPassed ? 0.5 : 1;
-              const dotR       = isCurrent ? 3.5 : 2;
-
-              const labelColor  = isCurrent ? "#15803d" : isPassed ? "#9ca3af" : "#0369a1";
-              const labelWeight = isCurrent ? "700"      : "500";
-              const labelSize   = isCurrent ? "11"       : "9.5";
-              const labelY      = cy - (isCurrent ? 20 : 11);
-
-              return (
-                <g key={r.id}>
-                  {/* Current location: pulsing rings */}
-                  {isCurrent && (
-                    <>
-                      <circle cx={cx} cy={cy} r="14" fill="rgba(132,204,22,0.22)" />
-                      <circle cx={cx} cy={cy} r="8"  fill="none" stroke="#84cc16" strokeWidth="2" />
-                    </>
-                  )}
-
-                  {/* Tiny dot tick on the path (replaces large bubble) */}
-                  <circle cx={cx} cy={cy} r={dotR} fill={dotColor} opacity={dotOpacity} />
-
-                  {/* Location name label — no number, no bubble */}
-                  <text
-                    x={cx}
-                    y={labelY}
-                    textAnchor="middle"
-                    fontSize={labelSize}
-                    fontWeight={labelWeight}
-                    fill={labelColor}
-                    fontFamily="Inter, system-ui, sans-serif"
-                    style={{ pointerEvents: "none" }}
-                    paintOrder="stroke"
-                    stroke="rgba(255,255,255,0.88)"
-                    strokeWidth="3"
-                    strokeLinejoin="round"
-                  >
-                    {r.location}
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* ── Turn chevrons at direction-change nodes ── */}
+            {/* ── 4. Turn chevrons at direction-change nodes ── */}
             {allReaders.map((r, i) => {
               if (!isTurnPoint(allReaders, i)) return null;
-              // Skip already-passed nodes
+              // Skip already-passed turns
               if (r.sequence < currentSeq) return null;
 
               const cx = px(r.coords.x);
               const cy = py(r.coords.y);
-
-              const prev = allReaders[i - 1].coords;
               const next = allReaders[i + 1].coords;
 
-              // Angle: chevron tip points in the outgoing direction
-              // angleBetween returns 0° = right; chevron path is drawn pointing down (90°)
-              // so subtract 90 to align tip with outgoing direction
               const outAngle = angleBetween(r.coords, next) - 90;
-
-              // Offset: place the chevron slightly ahead of the node along the outgoing direction
               const outRad = (outAngle + 90) * (Math.PI / 180);
-              const offsetX = Math.cos(outRad) * 14;
-              const offsetY = Math.sin(outRad) * 14;
+              const offsetX = Math.cos(outRad) * 16;
+              const offsetY = Math.sin(outRad) * 16;
 
               return (
                 <g
                   key={`turn-${r.id}`}
                   transform={`translate(${cx + offsetX},${cy + offsetY}) rotate(${outAngle})`}
                 >
-                  {/* Thin white halo for contrast against dark floorplan areas */}
+                  {/* White halo */}
                   <path
                     d={CHEVRON_PATH}
                     fill="none"
-                    stroke="rgba(255,255,255,0.9)"
-                    strokeWidth="4"
+                    stroke="#ffffff"
+                    strokeWidth="6"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
-                  {/* Cyan chevron — matches the active path colour, clearly a direction cue */}
+                  {/* Cyan chevron */}
                   <path
                     d={CHEVRON_PATH}
                     fill="none"
-                    stroke="#0ea5e9"
-                    strokeWidth="2.5"
+                    stroke="#0284c7"
+                    strokeWidth="3.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
@@ -281,31 +288,114 @@ export default function PathMapCanvas({ liveData }) {
               );
             })}
 
-            {/* ── Leading direction arrow at current position ── */}
+            {/* ── 5. Reader Markers & Location Labels ── */}
+            {allReaders.map((r) => {
+              if (r.isWaypoint) return null;
+              const cx = px(r.coords.x);
+              const cy = py(r.coords.y);
+              const isPassed = r.sequence < currentSeq;
+              const isCurrent = r.sequence === currentSeq;
+              const isDestination = r.sequence === destinationReader?.sequence;
+
+              // Colors based on status
+              const nodeBg = isCurrent ? "#22c55e" : isPassed ? "#94a3b8" : "#0284c7";
+              const labelColor = isCurrent ? "#15803d" : isPassed ? "#64748b" : "#0369a1";
+              const labelWeight = isCurrent ? "800" : isDestination ? "700" : "600";
+              const labelSize = isCurrent ? "11.5" : "10";
+              const labelY = cy - (isCurrent ? 22 : 12);
+
+              return (
+                <g key={r.id}>
+                  {/* Current Active Location Radar Pulse */}
+                  {isCurrent && (
+                    <>
+                      <circle cx={cx} cy={cy} r="22" fill="rgba(34, 197, 94, 0.18)">
+                        <animate
+                          attributeName="r"
+                          values="16;26;16"
+                          dur="2s"
+                          repeatCount="indefinite"
+                        />
+                        <animate
+                          attributeName="opacity"
+                          values="0.3;0.05;0.3"
+                          dur="2s"
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                      <circle cx={cx} cy={cy} r="14" fill="rgba(34, 197, 94, 0.3)" />
+                      <circle cx={cx} cy={cy} r="9" fill="none" stroke="#22c55e" strokeWidth="2.5" />
+                    </>
+                  )}
+
+                  {/* Destination Marker Ring */}
+                  {isDestination && !isCurrent && (
+                    <circle cx={cx} cy={cy} r="10" fill="none" stroke="#dc2626" strokeWidth="2" strokeDasharray="3 3" />
+                  )}
+
+                  {/* Node Dot */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={isCurrent ? 4.5 : isDestination ? 4 : 3}
+                    fill={isDestination && !isPassed ? "#dc2626" : nodeBg}
+                    stroke="#ffffff"
+                    strokeWidth={isCurrent ? 1.5 : 1}
+                    filter="url(#node-shadow)"
+                  />
+                </g>
+              );
+            })}
+
+            {/* ── 6. Direction Arrow Indicator at Current Position ── */}
             {currPt && nextPt && (
               <g transform={`translate(${px(currPt.x)},${py(currPt.y)}) rotate(${leadArrowAngle})`}>
-                <polygon points="-8,6 0,-14 8,6 0,2" fill="#0ea5e9" stroke="#ffffff" strokeWidth="1.5" />
+                <polygon
+                  points="-9,7 0,-16 9,7 0,2"
+                  fill="#0284c7"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                  filter="url(#node-shadow)"
+                />
               </g>
             )}
           </svg>
         </div>
 
         {/* ── Zoom Controls (top-right) ── */}
-        <div style={{ position: "absolute", top: "12px", right: "12px", display: "flex", flexDirection: "column", gap: "6px", zIndex: 25 }}>
+        <div
+          style={{
+            position: "absolute",
+            top: "12px",
+            right: "12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+            zIndex: 25,
+          }}
+        >
           {[
-            { icon: <ZoomIn size={18} />,    action: handleZoomIn,  title: "Zoom In"    },
-            { icon: <ZoomOut size={18} />,   action: handleZoomOut, title: "Zoom Out"   },
-            { icon: <RotateCcw size={16} />, action: handleReset,   title: "Reset Zoom" },
+            { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In" },
+            { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out" },
+            { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View (Fit Full Map)" },
           ].map(({ icon, action, title }) => (
             <button
               key={title}
               onClick={action}
               title={title}
               style={{
-                width: "36px", height: "36px", borderRadius: "10px",
-                backgroundColor: "rgba(255,255,255,0.95)", border: "1px solid #d1d5db",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer", boxShadow: "0 2px 6px rgba(0,0,0,0.1)", color: "#1f2937",
+                width: "36px",
+                height: "36px",
+                borderRadius: "10px",
+                backgroundColor: "rgba(255,255,255,0.96)",
+                border: "1px solid #d1d5db",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+                color: "#1f2937",
+                transition: "all 0.15s ease",
               }}
             >
               {icon}
@@ -313,13 +403,13 @@ export default function PathMapCanvas({ liveData }) {
           ))}
         </div>
 
-        {/* ── Status card (top-left) — location name only, no sequence number prefix ── */}
+        {/* ── Status Card (top-left) ── */}
         <div
           style={{
             position: "absolute",
             top: "12px",
             left: "12px",
-            backgroundColor: "rgba(255,255,255,0.94)",
+            backgroundColor: "rgba(255,255,255,0.95)",
             backdropFilter: "blur(8px)",
             borderRadius: "14px",
             padding: "10px 14px",
@@ -329,28 +419,96 @@ export default function PathMapCanvas({ liveData }) {
             boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
             border: "1px solid #e5e7eb",
             zIndex: 20,
+            pointerEvents: "none",
           }}
         >
           {/* Green pulse dot indicator */}
           <div
             style={{
-              width: "10px", height: "10px", borderRadius: "50%",
-              backgroundColor: "#84cc16",
-              boxShadow: "0 0 0 3px rgba(132,204,22,0.3)",
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              backgroundColor: "#22c55e",
+              boxShadow: "0 0 0 3px rgba(34, 197, 94, 0.3)",
               flexShrink: 0,
             }}
           />
           <div>
-            <span style={{ fontSize: "9px", fontWeight: "700", color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", display: "block" }}>
+            <span
+              style={{
+                fontSize: "9px",
+                fontWeight: "700",
+                color: "#6b7280",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                display: "block",
+              }}
+            >
               Current Location
             </span>
-            <span style={{ fontSize: "13px", fontWeight: "800", color: "#1f2937" }}>
+            <span style={{ fontSize: "13px", fontWeight: "800", color: "#0f172a" }}>
               {currentReader.location}
             </span>
           </div>
-          <span style={{ fontSize: "11px", fontWeight: "700", color: "#0ea5e9", backgroundColor: "#e0f2fe", padding: "3px 9px", borderRadius: "12px" }}>
-            {currentSeq} / {allReaders.filter(r => !r.isWaypoint).length}
+          <span
+            style={{
+              fontSize: "11px",
+              fontWeight: "700",
+              color: "#0284c7",
+              backgroundColor: "#e0f2fe",
+              padding: "3px 9px",
+              borderRadius: "12px",
+            }}
+          >
+            {currentStopIndex} / {totalStops}
           </span>
+        </div>
+
+        {/* ── Path Legend (bottom-left) ── */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: "12px",
+            left: "12px",
+            backgroundColor: "rgba(255,255,255,0.92)",
+            backdropFilter: "blur(6px)",
+            borderRadius: "10px",
+            padding: "6px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            fontSize: "11px",
+            fontWeight: "600",
+            color: "#475569",
+            border: "1px solid #e2e8f0",
+            zIndex: 20,
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                width: "14px",
+                height: "4px",
+                backgroundColor: "#94a3b8",
+                borderRadius: "2px",
+                display: "inline-block",
+              }}
+            />
+            <span>Completed</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                width: "14px",
+                height: "4px",
+                backgroundColor: "#0284c7",
+                borderRadius: "2px",
+                display: "inline-block",
+              }}
+            />
+            <span>Remaining Path</span>
+          </div>
         </div>
       </div>
     </div>
