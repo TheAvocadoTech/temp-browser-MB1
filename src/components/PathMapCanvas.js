@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import defaultReaders from "../config/rfidReaders.json";
 import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { useSmoothLocation } from "../hooks/useSmoothLocation";
 
 // ── Geometry helpers ─────────────────────────────────────────────────────────
 // Returns the angle in degrees from point a → b in SVG space (1000×700)
@@ -61,27 +62,34 @@ export default function PathMapCanvas({ liveData }) {
   const currentSeq = currentReader.sequence || 1;
 
   // Merge local coords onto live data so edits to rfidReaders.json take effect
-  const allReaders = apiReaders.map((r) => {
-    const local = defaultReaders.find((d) => d.id === r.id);
-    return local ? { ...r, coords: local.coords, location: local.location } : r;
-  });
+  const allReaders = useMemo(() => {
+    return apiReaders.map((r) => {
+      const local = defaultReaders.find((d) => d.id === r.id);
+      return local ? { ...r, coords: local.coords, location: local.location } : r;
+    });
+  }, [apiReaders]);
 
-  // Split path into completed (passed) and active (remaining)
-  const passedReaders = allReaders.filter((r) => r.sequence <= currentSeq);
-  const remainingReaders = allReaders.filter((r) => r.sequence >= currentSeq);
+  const activeReader = allReaders.find((r) => r.id === currentReader.id) || currentReader;
+
+  // Continuous smooth location interpolation
+  const {
+    currentPos,
+    currentAngle,
+    passedPoints: smoothPassed,
+    remainingPoints: smoothRemaining,
+  } = useSmoothLocation({
+    currentReader: activeReader,
+    allReaders,
+    baseDuration: 1200,
+  });
 
   // SVG coordinate helpers (viewBox 1000 × 700)
   const px = (x) => (x / 100) * 1000;
   const py = (y) => (y / 100) * 700;
 
   const allPoints = allReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
-  const passedPoints = passedReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
-  const remainingPoints = remainingReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
-
-  // Leading arrow direction (current → next)
-  const currPt = remainingReaders[0]?.coords;
-  const nextPt = remainingReaders[1]?.coords;
-  const leadArrowAngle = currPt && nextPt ? angleBetween(currPt, nextPt) + 90 : 0;
+  const passedPoints = smoothPassed.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
+  const remainingPoints = smoothRemaining.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
 
   const totalStops = allReaders.filter((r) => !r.isWaypoint).length;
   const currentStopIndex = allReaders.filter((r) => !r.isWaypoint && r.sequence <= currentSeq).length;
@@ -207,7 +215,7 @@ export default function PathMapCanvas({ liveData }) {
             />
 
             {/* ── 2. Completed Path (Passed segments) — Grey Dotted Thin Crisp Line ── */}
-            {passedReaders.length > 1 && (
+            {smoothPassed.length > 1 && (
               <polyline
                 points={passedPoints}
                 fill="none"
@@ -221,7 +229,7 @@ export default function PathMapCanvas({ liveData }) {
             )}
 
             {/* ── 3. Active Remaining Path — Vivid Cyan Dotted Thin Crisp Line ── */}
-            {remainingReaders.length > 1 && (
+            {smoothRemaining.length > 1 && (
               <>
                 {/* Subtle Glow */}
                 <polyline
@@ -288,7 +296,7 @@ export default function PathMapCanvas({ liveData }) {
               );
             })}
 
-            {/* ── 5. Reader Markers & Location Labels ── */}
+            {/* ── 5. Fixed Reader Checkpoint Stations ── */}
             {allReaders.map((r) => {
               if (r.isWaypoint) return null;
               const cx = px(r.coords.x);
@@ -299,37 +307,11 @@ export default function PathMapCanvas({ liveData }) {
 
               // Colors based on status
               const nodeBg = isCurrent ? "#22c55e" : isPassed ? "#94a3b8" : "#0284c7";
-              const labelColor = isCurrent ? "#15803d" : isPassed ? "#64748b" : "#0369a1";
-              const labelWeight = isCurrent ? "800" : isDestination ? "700" : "600";
-              const labelSize = isCurrent ? "11.5" : "10";
-              const labelY = cy - (isCurrent ? 22 : 12);
 
               return (
                 <g key={r.id}>
-                  {/* Current Active Location Radar Pulse */}
-                  {isCurrent && (
-                    <>
-                      <circle cx={cx} cy={cy} r="22" fill="rgba(34, 197, 94, 0.18)">
-                        <animate
-                          attributeName="r"
-                          values="16;26;16"
-                          dur="2s"
-                          repeatCount="indefinite"
-                        />
-                        <animate
-                          attributeName="opacity"
-                          values="0.3;0.05;0.3"
-                          dur="2s"
-                          repeatCount="indefinite"
-                        />
-                      </circle>
-                      <circle cx={cx} cy={cy} r="14" fill="rgba(34, 197, 94, 0.3)" />
-                      <circle cx={cx} cy={cy} r="9" fill="none" stroke="#22c55e" strokeWidth="2.5" />
-                    </>
-                  )}
-
                   {/* Destination Marker Ring */}
-                  {isDestination && !isCurrent && (
+                  {isDestination && (
                     <circle cx={cx} cy={cy} r="10" fill="none" stroke="#dc2626" strokeWidth="2" strokeDasharray="3 3" />
                   )}
 
@@ -347,9 +329,40 @@ export default function PathMapCanvas({ liveData }) {
               );
             })}
 
-            {/* ── 6. Direction Arrow Indicator at Current Position ── */}
-            {currPt && nextPt && (
-              <g transform={`translate(${px(currPt.x)},${py(currPt.y)}) rotate(${leadArrowAngle})`}>
+            {/* ── 6. Live Smoothly Moving Location Radar Pulse & Marker ── */}
+            {currentPos && (
+              <g>
+                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="22" fill="rgba(34, 197, 94, 0.2)">
+                  <animate
+                    attributeName="r"
+                    values="16;28;16"
+                    dur="2s"
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    values="0.35;0.05;0.35"
+                    dur="2s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="14" fill="rgba(34, 197, 94, 0.35)" />
+                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="9" fill="none" stroke="#22c55e" strokeWidth="2.5" />
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="5"
+                  fill="#22c55e"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                  filter="url(#node-shadow)"
+                />
+              </g>
+            )}
+
+            {/* ── 7. Smooth Direction Arrow Indicator ── */}
+            {currentPos && (
+              <g transform={`translate(${px(currentPos.x)},${py(currentPos.y)}) rotate(${currentAngle + 90})`}>
                 <polygon
                   points="-9,7 0,-16 9,7 0,2"
                   fill="#0284c7"

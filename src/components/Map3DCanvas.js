@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { LocateFixed } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
 import transform from "../config/mapTransform.json";
+import { useSmoothLocation } from "../hooks/useSmoothLocation";
 
 // World-unit dimensions corresponding to 100% floorplan width and depth
 const FLOOR_WIDTH = 40;
@@ -139,11 +140,21 @@ function isTurnPoint(readers, i, threshold = 25) {
 }
 
 function LiveLocationDropMarker({ coords }) {
+  const rootGroupRef = useRef();
   const pinGroupRef = useRef();
   const pulseRef = useRef();
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
+
+    if (coords && rootGroupRef.current) {
+      const [targetWx, targetWy, targetWz] = pctToWorld(coords.x, coords.y, 0.05);
+      const lerpSpeed = Math.min(1.0, delta * 14);
+      rootGroupRef.current.position.x += (targetWx - rootGroupRef.current.position.x) * lerpSpeed;
+      rootGroupRef.current.position.y += (targetWy - rootGroupRef.current.position.y) * lerpSpeed;
+      rootGroupRef.current.position.z += (targetWz - rootGroupRef.current.position.z) * lerpSpeed;
+    }
+
     if (pinGroupRef.current) {
       // Smooth hovering up and down
       pinGroupRef.current.position.y = 1.0 + Math.sin(t * 3.5) * 0.12;
@@ -163,10 +174,10 @@ function LiveLocationDropMarker({ coords }) {
   });
 
   if (!coords) return null;
-  const [wx, wy, wz] = pctToWorld(coords.x, coords.y, 0.05);
+  const [initWx, initWy, initWz] = pctToWorld(coords.x, coords.y, 0.05);
 
   return (
-    <group position={[wx, wy, wz]}>
+    <group ref={rootGroupRef} position={[initWx, initWy, initWz]}>
       {/* ── Ground Contact Ring & Pulsing Ripple ── */}
       <group position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         {/* Soft shadow disc under pin tip */}
@@ -235,13 +246,19 @@ function FlatPathLayer({ liveData }) {
     });
   }, [apiReaders]);
 
-  const passedReaders = useMemo(() => {
-    return allReaders.filter((r) => r.sequence <= currentSeq);
-  }, [allReaders, currentSeq]);
+  const activeReader = allReaders.find((r) => r.id === currentReader.id) || currentReader;
 
-  const remainingReaders = useMemo(() => {
-    return allReaders.filter((r) => r.sequence >= currentSeq);
-  }, [allReaders, currentSeq]);
+  // Continuous smooth location interpolation
+  const {
+    currentPos,
+    currentAngle,
+    passedPoints: smoothPassed,
+    remainingPoints: smoothRemaining,
+  } = useSmoothLocation({
+    currentReader: activeReader,
+    allReaders,
+    baseDuration: 1200,
+  });
 
   // 3D Point arrays for R3F Line
   const allPoints3D = useMemo(() => {
@@ -249,12 +266,12 @@ function FlatPathLayer({ liveData }) {
   }, [allReaders]);
 
   const passedPoints3D = useMemo(() => {
-    return passedReaders.map((r) => pctToWorld(r.coords.x, r.coords.y, 0.14));
-  }, [passedReaders]);
+    return smoothPassed.map((p) => pctToWorld(p.x, p.y, 0.14));
+  }, [smoothPassed]);
 
   const remainingPoints3D = useMemo(() => {
-    return remainingReaders.map((r) => pctToWorld(r.coords.x, r.coords.y, 0.15));
-  }, [remainingReaders]);
+    return smoothRemaining.map((p) => pctToWorld(p.x, p.y, 0.15));
+  }, [smoothRemaining]);
 
   return (
     <group>
@@ -306,14 +323,13 @@ function FlatPathLayer({ liveData }) {
         </>
       )}
 
-      {/* ── 4. Live Location 3D Drop Pin Marker ── */}
+      {/* ── 4. Live Smoothly Moving 3D Drop Pin Marker ── */}
       <LiveLocationDropMarker
-        coords={currentReader.coords}
-        readerName={currentReader.location}
+        coords={currentPos}
+        readerName={activeReader.location}
       />
 
-
-      {/* ── 4. Turn Chevrons flat on 3D floor at direction-change points ── */}
+      {/* ── 5. Turn Chevrons flat on 3D floor at direction-change points ── */}
       {allReaders.map((r, i) => {
         if (!isTurnPoint(allReaders, i)) return null;
         if (r.sequence < currentSeq) return null; // skip passed
@@ -344,12 +360,10 @@ function FlatPathLayer({ liveData }) {
         );
       })}
 
-      {/* ── 5. Leading direction arrow flat on floor at current position ── */}
-      {remainingReaders.length > 1 && (() => {
-        const curr = remainingReaders[0].coords;
-        const next = remainingReaders[1].coords;
-        const [cx, cy, cz] = pctToWorld(curr.x, curr.y, 0.2);
-        const angle = angleBetween(curr, next);
+      {/* ── 6. Leading direction arrow flat on floor at smooth position ── */}
+      {smoothRemaining.length > 1 && (() => {
+        const [cx, cy, cz] = pctToWorld(currentPos.x, currentPos.y, 0.2);
+        const angle = -((currentAngle - 90) * Math.PI) / 180;
 
         const arrowPoints = [
           [-0.2, 0, -0.25],
