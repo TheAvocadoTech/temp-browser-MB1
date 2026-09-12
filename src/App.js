@@ -29,9 +29,11 @@ export default function App() {
     if (isSessionExpired) return;
 
     try {
+      const configuredApi = process.env.REACT_APP_API_URL;
       const API_BASE =
-        process.env.REACT_APP_API_URL ||
-        `${window.location.protocol}//${window.location.hostname}:7000`;
+        configuredApi && !configuredApi.includes("192.168.20.10")
+          ? configuredApi
+          : `${window.location.protocol}//${window.location.hostname || "localhost"}:7000`;
       const targetUrl = token
         ? `${API_BASE}/api/rfid/live-token/${token}?_t=${Date.now()}`
         : `${API_BASE}/api/rfid/live/${tagCode || ""}?_t=${Date.now()}`;

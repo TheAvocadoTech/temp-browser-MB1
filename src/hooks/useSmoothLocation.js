@@ -23,9 +23,9 @@ export function angleDegrees(p1, p2) {
 
 /**
  * Hook to smoothly animate the live RFID tag location along hallway paths and waypoints
- * without sudden jumps between readers or cutting through walls.
+ * without sudden jumps between readers.
  */
-export function useSmoothLocation({ currentReader, allReaders = [], baseDuration = 1200 }) {
+export function useSmoothLocation({ currentReader, allReaders = [], baseDuration = 400 }) {
   const targetCoords = currentReader?.coords || { x: 50, y: 50 };
   const targetSeq = currentReader?.sequence ?? 1;
 
@@ -34,26 +34,17 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
   const [currentAngle, setCurrentAngle] = useState(0);
   const [isMoving, setIsMoving] = useState(false);
 
-  // Active corridor checkpoint index in allReaders that tag has completed/is at
-  const [globalIdx, setGlobalIdx] = useState(0);
-
   const posRef = useRef(targetCoords);
-  const globalIndexRef = useRef(0);
-  const prevTargetIdRef = useRef(null);
+  const prevTargetIdRef = useRef(currentReader?.id ?? null);
   const animFrameRef = useRef(null);
   const isFirstRender = useRef(true);
 
   // Initialize on first mount
   useEffect(() => {
-    if (isFirstRender.current && currentReader?.coords && allReaders.length > 0) {
+    if (isFirstRender.current && currentReader?.coords) {
       posRef.current = currentReader.coords;
       setCurrentPos(currentReader.coords);
       prevTargetIdRef.current = currentReader.id;
-
-      const initIdx = allReaders.findIndex((r) => r.id === currentReader.id);
-      const safeIdx = initIdx !== -1 ? initIdx : 0;
-      globalIndexRef.current = safeIdx;
-      setGlobalIdx(safeIdx);
       isFirstRender.current = false;
 
       // Face next reader on load
@@ -67,75 +58,74 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
   useEffect(() => {
     if (!currentReader || !allReaders.length) return;
 
-    // Check target reader index
-    const targetIdx = allReaders.findIndex((r) => r.id === currentReader.id);
-    if (targetIdx === -1) return;
+    // Check if target reader actually changed or if we need to animate
+    const prevId = prevTargetIdRef.current;
+    prevTargetIdRef.current = currentReader.id;
 
     const startPos = { ...posRef.current };
     const targetPos = currentReader.coords;
 
-    // Determine current start index along allReaders
-    let startIdx = globalIndexRef.current;
-    if (startIdx < 0 || startIdx >= allReaders.length) {
+    const directDistance = dist(startPos, targetPos);
+    if (directDistance < 0.05) {
+      posRef.current = targetPos;
+      setCurrentPos(targetPos);
+      return;
+    }
+
+    // Find reader indices along the defined sequence
+    let prevIdx = allReaders.findIndex((r) => r.id === prevId);
+    let targetIdx = allReaders.findIndex((r) => r.id === currentReader.id);
+
+    // If prev reader was not identified or if mid-motion, find the closest node in allReaders to startPos
+    if (prevIdx === -1) {
       let closestDist = Infinity;
       allReaders.forEach((r, idx) => {
         const d = dist(startPos, r.coords);
         if (d < closestDist) {
           closestDist = d;
-          startIdx = idx;
+          prevIdx = idx;
         }
       });
     }
 
-    const directDistance = dist(startPos, targetPos);
-    if (directDistance < 0.05 && startIdx === targetIdx) {
-      posRef.current = targetPos;
-      globalIndexRef.current = targetIdx;
-      setCurrentPos(targetPos);
-      setGlobalIdx(targetIdx);
-      setIsMoving(false);
-      return;
+    if (targetIdx === -1) {
+      targetIdx = allReaders.findIndex((r) => r.sequence === targetSeq);
+      if (targetIdx === -1) targetIdx = prevIdx;
     }
-
-    // If target hasn't changed from previous target and we are already moving towards it,
-    // we don't restart the animation unless forced
-    if (prevTargetIdRef.current === currentReader.id && isMoving) {
-      return;
-    }
-    prevTargetIdRef.current = currentReader.id;
 
     // Build the sub-path including all intermediate waypoints and corridor turns
-    const subPath = [{ coords: startPos, globalIdx: startIdx }];
-    if (startIdx < targetIdx) {
-      // Forward progression along the route
-      for (let i = startIdx + 1; i <= targetIdx; i++) {
-        subPath.push({ coords: allReaders[i].coords, globalIdx: i });
-      }
-    } else if (startIdx > targetIdx) {
-      // Backward progression
-      for (let i = startIdx - 1; i >= targetIdx; i--) {
-        subPath.push({ coords: allReaders[i].coords, globalIdx: i });
+    const pathNodes = [startPos];
+    if (prevIdx !== -1 && targetIdx !== -1 && prevIdx !== targetIdx) {
+      if (prevIdx < targetIdx) {
+        // Forward progression along the route: include all intermediate corridor turns/readers
+        for (let i = prevIdx; i <= targetIdx; i++) {
+          if (dist(startPos, allReaders[i].coords) > 0.2) {
+            pathNodes.push(allReaders[i].coords);
+          }
+        }
+      } else {
+        // Backward progression
+        for (let i = prevIdx; i >= targetIdx; i--) {
+          if (dist(startPos, allReaders[i].coords) > 0.2) {
+            pathNodes.push(allReaders[i].coords);
+          }
+        }
       }
     } else {
-      subPath.push({ coords: targetPos, globalIdx: targetIdx });
+      pathNodes.push(targetPos);
     }
 
-    // Filter out redundant identical nodes while preserving correct globalIdx
-    const cleanSubPath = [];
-    for (let i = 0; i < subPath.length; i++) {
-      if (i === 0 || dist(cleanSubPath[cleanSubPath.length - 1].coords, subPath[i].coords) > 0.05) {
-        cleanSubPath.push(subPath[i]);
-      } else {
-        cleanSubPath[cleanSubPath.length - 1].globalIdx = subPath[i].globalIdx;
+    // Filter out redundant identical nodes
+    const cleanNodes = [];
+    for (let i = 0; i < pathNodes.length; i++) {
+      if (i === 0 || dist(cleanNodes[cleanNodes.length - 1], pathNodes[i]) > 0.05) {
+        cleanNodes.push(pathNodes[i]);
       }
     }
 
-    if (cleanSubPath.length < 2) {
+    if (cleanNodes.length < 2) {
       posRef.current = targetPos;
-      globalIndexRef.current = targetIdx;
       setCurrentPos(targetPos);
-      setGlobalIdx(targetIdx);
-      setIsMoving(false);
       return;
     }
 
@@ -144,8 +134,8 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
     const cumDists = [0];
     let totalPathDist = 0;
 
-    for (let i = 0; i < cleanSubPath.length - 1; i++) {
-      const segDist = dist(cleanSubPath[i].coords, cleanSubPath[i + 1].coords);
+    for (let i = 0; i < cleanNodes.length - 1; i++) {
+      const segDist = dist(cleanNodes[i], cleanNodes[i + 1]);
       segmentDists.push(segDist);
       totalPathDist += segDist;
       cumDists.push(totalPathDist);
@@ -153,15 +143,13 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
 
     if (totalPathDist < 0.05) {
       posRef.current = targetPos;
-      globalIndexRef.current = targetIdx;
       setCurrentPos(targetPos);
-      setGlobalIdx(targetIdx);
-      setIsMoving(false);
       return;
     }
 
-    // Dynamic duration based on distance so longer moves stay smooth
-    const moveDuration = Math.min(Math.max(baseDuration * (totalPathDist / 8), 700), 2200);
+    // Dynamic duration based on distance so moves stay crisp and fast without delay
+    const moveDuration = Math.min(Math.max(baseDuration * (totalPathDist / 8), 280), 650);
+
     const startTime = performance.now();
     setIsMoving(true);
 
@@ -176,7 +164,7 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
 
       const targetDist = easedProgress * totalPathDist;
 
-      // Find active segment in cleanSubPath
+      // Find active segment
       let segIdx = 0;
       for (let i = 0; i < segmentDists.length; i++) {
         if (targetDist >= cumDists[i] && targetDist <= cumDists[i + 1]) {
@@ -189,8 +177,8 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       const segLen = segmentDists[segIdx] || 0.0001;
       const segFraction = Math.min(1, Math.max(0, (targetDist - segStartDist) / segLen));
 
-      const pA = cleanSubPath[segIdx].coords;
-      const pB = cleanSubPath[segIdx + 1].coords;
+      const pA = cleanNodes[segIdx];
+      const pB = cleanNodes[segIdx + 1];
 
       const currentX = pA.x + segFraction * (pB.x - pA.x);
       const currentY = pA.y + segFraction * (pB.y - pA.y);
@@ -201,18 +189,11 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       setCurrentPos(newPos);
       setCurrentAngle(currentAngleDeg);
 
-      // Track active node index in allReaders
-      const activeIdx = cleanSubPath[segIdx].globalIdx;
-      globalIndexRef.current = activeIdx;
-      setGlobalIdx(activeIdx);
-
       if (rawProgress < 1) {
         animFrameRef.current = requestAnimationFrame(animate);
       } else {
         posRef.current = targetPos;
-        globalIndexRef.current = targetIdx;
         setCurrentPos(targetPos);
-        setGlobalIdx(targetIdx);
         setIsMoving(false);
 
         // Update angle to face next reader after arriving
@@ -236,40 +217,32 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
   const { passedPoints, remainingPoints } = useMemo(() => {
     if (!allReaders.length) return { passedPoints: [], remainingPoints: [] };
 
-    const gIdx = Math.max(0, Math.min(globalIdx, allReaders.length - 1));
+    // Passed readers strictly before targetSeq
+    const passed = allReaders
+      .filter((r) => r.sequence < targetSeq)
+      .map((r) => r.coords);
+    passed.push(currentPos);
 
-    // Passed path: all completed corridor waypoints from origin (0) up to gIdx, terminating at currentPos
-    const passed = [];
-    for (let i = 0; i <= gIdx; i++) {
-      passed.push(allReaders[i].coords);
-    }
-    if (passed.length === 0 || dist(passed[passed.length - 1], currentPos) > 0.05) {
-      passed.push(currentPos);
-    }
-
-    // Remaining path: starting at currentPos, followed by all upcoming corridor waypoints to the destination
+    // Remaining readers:
+    // IMPORTANT: Include the active target reader (sequence === targetSeq)
+    // so the path always leads to the active target reader and DOES NOT skip it to cut across walls!
     const remaining = [currentPos];
-    for (let i = gIdx + 1; i < allReaders.length; i++) {
-      remaining.push(allReaders[i].coords);
+
+    // Find the target reader
+    const activeTarget = allReaders.find(
+      (r) => r.sequence === targetSeq || (currentReader?.id && r.id === currentReader.id)
+    );
+    if (activeTarget && dist(currentPos, activeTarget.coords) > 0.3) {
+      remaining.push(activeTarget.coords);
     }
 
-    // Filter adjacent duplicate points for clean rendering
-    const cleanPassed = [];
-    for (let i = 0; i < passed.length; i++) {
-      if (i === 0 || dist(cleanPassed[cleanPassed.length - 1], passed[i]) > 0.05) {
-        cleanPassed.push(passed[i]);
-      }
-    }
+    // Subsequent readers strictly after targetSeq
+    allReaders
+      .filter((r) => r.sequence > targetSeq)
+      .forEach((r) => remaining.push(r.coords));
 
-    const cleanRemaining = [];
-    for (let i = 0; i < remaining.length; i++) {
-      if (i === 0 || dist(cleanRemaining[cleanRemaining.length - 1], remaining[i]) > 0.05) {
-        cleanRemaining.push(remaining[i]);
-      }
-    }
-
-    return { passedPoints: cleanPassed, remainingPoints: cleanRemaining };
-  }, [allReaders, globalIdx, currentPos]);
+    return { passedPoints: passed, remainingPoints: remaining };
+  }, [allReaders, targetSeq, currentPos, currentReader?.id]);
 
   return {
     currentPos,

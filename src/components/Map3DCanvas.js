@@ -246,7 +246,9 @@ function FlatPathLayer({ liveData }) {
     });
   }, [apiReaders]);
 
-  const activeReader = allReaders.find((r) => r.id === currentReader.id) || currentReader;
+  const activeReader =
+    allReaders.find((r) => r.id === currentReader.id || (currentReader.sequence && r.sequence === currentReader.sequence)) ||
+    currentReader;
 
   // Continuous smooth location interpolation
   const {
@@ -257,7 +259,7 @@ function FlatPathLayer({ liveData }) {
   } = useSmoothLocation({
     currentReader: activeReader,
     allReaders,
-    baseDuration: 1200,
+    baseDuration: 400,
   });
 
   // 3D Point arrays for R3F Line

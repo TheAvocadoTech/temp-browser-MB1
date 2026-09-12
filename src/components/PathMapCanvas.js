@@ -69,7 +69,9 @@ export default function PathMapCanvas({ liveData }) {
     });
   }, [apiReaders]);
 
-  const activeReader = allReaders.find((r) => r.id === currentReader.id) || currentReader;
+  const activeReader =
+    allReaders.find((r) => r.id === currentReader.id || (currentReader.sequence && r.sequence === currentReader.sequence)) ||
+    currentReader;
 
   // Continuous smooth location interpolation
   const {
@@ -80,7 +82,7 @@ export default function PathMapCanvas({ liveData }) {
   } = useSmoothLocation({
     currentReader: activeReader,
     allReaders,
-    baseDuration: 1200,
+    baseDuration: 400,
   });
 
   // SVG coordinate helpers (viewBox 1000 × 700)
