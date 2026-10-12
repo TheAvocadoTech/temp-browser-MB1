@@ -4,14 +4,12 @@ import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
 
 // ── Geometry helpers ─────────────────────────────────────────────────────────
-// Returns the angle in degrees from point a → b in SVG space (1000×700)
 function angleBetween(a, b) {
   const dx = ((b.x - a.x) / 100) * 1000;
   const dy = ((b.y - a.y) / 100) * 700;
   return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
 
-// Returns true if the path at index i makes a meaningful turn (> 25°)
 function isTurnPoint(readers, i, threshold = 25) {
   if (i < 1 || i >= readers.length - 1) return false;
   const prev = readers[i - 1].coords;
@@ -24,28 +22,62 @@ function isTurnPoint(readers, i, threshold = 25) {
   return diff > threshold;
 }
 
-// Open chevron path pointing RIGHT (0°) — rotated via SVG transform
 const CHEVRON_PATH = "M -10,-6 L 0,6 L 10,-6";
 
-export default function PathMapCanvas({ liveData }) {
+// ── Map source dimensions (must match MAP_CONFIGS in mistAssetTracker.js) ──
+const MAP_PIXEL_W = 6400;
+const MAP_PIXEL_H = 5120;
+
+export default function PathMapCanvas({
+  liveData,
+  // "route" (default) → snap dot to reader chain via useSmoothLocation
+  // "wifi"            → use liveData.position_px from the Mist tracker
+  // "auto"            → prefer wifi if available, fall back to route
+  positionSource = "auto",
+}) {
   // Zoom & Pan state
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef(null);
+  const zoomRef = useRef(1);
 
-  // Non-passive wheel event listener to fix Chrome/React preventDefault error
+  // Keep zoomRef in sync (needed inside the non-passive wheel listener)
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  // ── Non-passive wheel listener (cursor-anchored zoom) ────────────────────
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     const handleWheelListener = (e) => {
+      // Let the page scroll when we're already at min zoom and user scrolls down
+      if (zoomRef.current <= 1 && e.deltaY > 0) return;
+
       e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.2 : -0.2;
+
+      const rect = container.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
       setZoom((z) => {
+        const delta = e.deltaY < 0 ? 0.2 : -0.2;
         const nextZ = Math.min(Math.max(z + delta, 1.0), 5.0);
-        if (nextZ === 1.0) setPan({ x: 0, y: 0 });
+
+        if (nextZ === 1.0) {
+          setPan({ x: 0, y: 0 });
+          return nextZ;
+        }
+
+        // Anchor zoom on the cursor position
+        const scaleChange = nextZ / z;
+        setPan((p) => ({
+          x: mx - scaleChange * (mx - p.x),
+          y: my - scaleChange * (my - p.y),
+        }));
         return nextZ;
       });
     };
@@ -70,13 +102,16 @@ export default function PathMapCanvas({ liveData }) {
   }, [apiReaders]);
 
   const activeReader =
-    allReaders.find((r) => r.id === currentReader.id || (currentReader.sequence && r.sequence === currentReader.sequence)) ||
-    currentReader;
+    allReaders.find(
+      (r) =>
+        r.id === currentReader.id ||
+        (currentReader.sequence && r.sequence === currentReader.sequence)
+    ) || currentReader;
 
-  // Continuous smooth location interpolation
+  // Route-based interpolation (fallback / default)
   const {
-    currentPos,
-    currentAngle,
+    currentPos: routePos,
+    currentAngle: routeAngle,
     passedPoints: smoothPassed,
     remainingPoints: smoothRemaining,
     activeSeq,
@@ -88,21 +123,47 @@ export default function PathMapCanvas({ liveData }) {
 
   const animatedSeq = activeSeq ?? currentSeq;
 
-  // SVG coordinate helpers (viewBox 1000 × 700)
+  // ── SVG coordinate helpers (viewBox 1000 × 700) ─────────────────────────
   const px = (x) => (x / 100) * 1000;
   const py = (y) => (y / 100) * 700;
 
-  const allPoints = allReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
+  // ── WiFi position from Mist tracker (optional) ─────────────────────────
+  // liveData.position_px is expected in map pixel space (0..6400 × 0..5120).
+  // Convert to the 0..100 grid used by this canvas, so px()/py() work.
+  const wifiPos = useMemo(() => {
+    const p = liveData?.position_px;
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+    return {
+      x: (p.x / MAP_PIXEL_W) * 100,
+      y: (p.y / MAP_PIXEL_H) * 100,
+    };
+  }, [liveData?.position_px]);
+
+  // Resolve which position drives the dot
+  const useWifi =
+    (positionSource === "wifi" && wifiPos) ||
+    (positionSource === "auto" && wifiPos);
+
+  const currentPos = useWifi ? wifiPos : routePos;
+  const currentAngle = useWifi ? 0 : routeAngle; // WiFi has no bearing yet
+
+  const allPoints = allReaders
+    .map((r) => `${px(r.coords.x)},${py(r.coords.y)}`)
+    .join(" ");
   const passedPoints = smoothPassed.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
-  const remainingPoints = smoothRemaining.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
+  const remainingPoints = smoothRemaining
+    .map((p) => `${px(p.x)},${py(p.y)}`)
+    .join(" ");
 
   const totalStops = allReaders.filter((r) => !r.isWaypoint).length;
-  const currentStopIndex = allReaders.filter((r) => !r.isWaypoint && r.sequence <= currentSeq).length;
+  // Use animatedSeq so the badge matches the dot during transitions
+  const currentStopIndex = allReaders.filter(
+    (r) => !r.isWaypoint && r.sequence <= animatedSeq
+  ).length;
 
-  // Destination (final reader)
   const destinationReader = allReaders[allReaders.length - 1];
 
-  // ── Controls ──────────────────────────────────────────────────────────────
+  // ── Controls ────────────────────────────────────────────────────────────
   const handleZoomIn = () => setZoom((z) => Math.min(z + 0.4, 5.0));
   const handleZoomOut = () =>
     setZoom((z) => {
@@ -115,16 +176,35 @@ export default function PathMapCanvas({ liveData }) {
     setPan({ x: 0, y: 0 });
   };
 
-  const handleMouseDown = (e) => {
-    if (zoom > 1 && e.button === 0) {
+  // ── Pointer events (mouse + touch + pen) ────────────────────────────────
+  const handlePointerDown = (e) => {
+    if (zoom > 1) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      if (e.currentTarget.setPointerCapture) {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* noop */
+        }
+      }
     }
   };
-  const handleMouseMove = (e) => {
-    if (isDragging && zoom > 1) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+  const handlePointerMove = (e) => {
+    if (isDragging && zoom > 1) {
+      setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+    }
   };
-  const handleMouseUp = () => setIsDragging(false);
+  const handlePointerUp = (e) => {
+    setIsDragging(false);
+    if (e?.currentTarget?.releasePointerCapture) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+    }
+  };
 
   return (
     <div
@@ -142,13 +222,13 @@ export default function PathMapCanvas({ liveData }) {
         flexDirection: "column",
       }}
     >
-      {/* Interactive Map Graphic SVG Overlay Container */}
       <div
         ref={containerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onPointerLeave={handlePointerUp}
         style={{
           flex: 1,
           position: "relative",
@@ -161,15 +241,15 @@ export default function PathMapCanvas({ liveData }) {
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: "#f8fafc",
+          touchAction: zoom > 1 ? "none" : "auto",
         }}
       >
-        {/* Zoom & Pan Wrapper Element */}
         <div
           style={{
             width: "100%",
             height: "100%",
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: "center center",
+            transformOrigin: "0 0",
             transition: isDragging ? "none" : "transform 0.15s ease-out",
             display: "flex",
             alignItems: "center",
@@ -188,14 +268,19 @@ export default function PathMapCanvas({ liveData }) {
               maxHeight: "100%",
             }}
           >
-            {/* Defs: Drop shadows, gradients, and filters */}
             <defs>
               <filter id="path-glow" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur stdDeviation="3" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
               <filter id="node-shadow" x="-50%" y="-50%" width="200%" height="200%">
-                <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0f172a" floodOpacity="0.25" />
+                <feDropShadow
+                  dx="0"
+                  dy="2"
+                  stdDeviation="2.5"
+                  floodColor="#0f172a"
+                  floodOpacity="0.25"
+                />
               </filter>
             </defs>
 
@@ -209,7 +294,7 @@ export default function PathMapCanvas({ liveData }) {
               preserveAspectRatio="xMidYMid meet"
             />
 
-            {/* ── 1. Background guide track line (subtle underlying channel) ── */}
+            {/* 1. Background guide track */}
             <polyline
               points={allPoints}
               fill="none"
@@ -219,7 +304,7 @@ export default function PathMapCanvas({ liveData }) {
               strokeLinejoin="round"
             />
 
-            {/* ── 2. Completed Path (Passed segments) — Grey Dotted Thin Crisp Line ── */}
+            {/* 2. Completed path */}
             {smoothPassed.length > 1 && (
               <polyline
                 points={passedPoints}
@@ -233,10 +318,9 @@ export default function PathMapCanvas({ liveData }) {
               />
             )}
 
-            {/* ── 3. Active Remaining Path — Vivid Cyan Dotted Thin Crisp Line ── */}
+            {/* 3. Remaining path */}
             {smoothRemaining.length > 1 && (
               <>
-                {/* Subtle Glow */}
                 <polyline
                   points={remainingPoints}
                   fill="none"
@@ -246,7 +330,6 @@ export default function PathMapCanvas({ liveData }) {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                {/* Core Active Dotted Line (Thin & Sharp) */}
                 <polyline
                   points={remainingPoints}
                   fill="none"
@@ -259,10 +342,9 @@ export default function PathMapCanvas({ liveData }) {
               </>
             )}
 
-            {/* ── 4. Turn chevrons at direction-change nodes ── */}
+            {/* 4. Turn chevrons */}
             {allReaders.map((r, i) => {
               if (!isTurnPoint(allReaders, i)) return null;
-              // Skip already-passed turns
               if (r.sequence < animatedSeq) return null;
 
               const cx = px(r.coords.x);
@@ -279,7 +361,6 @@ export default function PathMapCanvas({ liveData }) {
                   key={`turn-${r.id}`}
                   transform={`translate(${cx + offsetX},${cy + offsetY}) rotate(${outAngle})`}
                 >
-                  {/* White halo */}
                   <path
                     d={CHEVRON_PATH}
                     fill="none"
@@ -288,7 +369,6 @@ export default function PathMapCanvas({ liveData }) {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
-                  {/* Cyan chevron */}
                   <path
                     d={CHEVRON_PATH}
                     fill="none"
@@ -301,7 +381,7 @@ export default function PathMapCanvas({ liveData }) {
               );
             })}
 
-            {/* ── 5. Fixed Reader Checkpoint Stations ── */}
+            {/* 5. Reader checkpoints */}
             {allReaders.map((r) => {
               if (r.isWaypoint) return null;
               const cx = px(r.coords.x);
@@ -310,17 +390,25 @@ export default function PathMapCanvas({ liveData }) {
               const isCurrent = r.sequence === animatedSeq;
               const isDestination = r.sequence === destinationReader?.sequence;
 
-              // Colors based on status
-              const nodeBg = isCurrent ? "#22c55e" : isPassed ? "#94a3b8" : "#0284c7";
+              const nodeBg = isCurrent
+                ? "#22c55e"
+                : isPassed
+                ? "#94a3b8"
+                : "#0284c7";
 
               return (
                 <g key={r.id}>
-                  {/* Destination Marker Ring */}
                   {isDestination && (
-                    <circle cx={cx} cy={cy} r="10" fill="none" stroke="#dc2626" strokeWidth="2" strokeDasharray="3 3" />
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r="10"
+                      fill="none"
+                      stroke="#dc2626"
+                      strokeWidth="2"
+                      strokeDasharray="3 3"
+                    />
                   )}
-
-                  {/* Node Dot */}
                   <circle
                     cx={cx}
                     cy={cy}
@@ -334,10 +422,15 @@ export default function PathMapCanvas({ liveData }) {
               );
             })}
 
-            {/* ── 6. Live Smoothly Moving Location Radar Pulse & Marker ── */}
+            {/* 6. Live position dot */}
             {currentPos && (
               <g>
-                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="22" fill="rgba(34, 197, 94, 0.2)">
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="22"
+                  fill="rgba(34, 197, 94, 0.2)"
+                >
                   <animate
                     attributeName="r"
                     values="16;28;16"
@@ -351,8 +444,20 @@ export default function PathMapCanvas({ liveData }) {
                     repeatCount="indefinite"
                   />
                 </circle>
-                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="14" fill="rgba(34, 197, 94, 0.35)" />
-                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="9" fill="none" stroke="#22c55e" strokeWidth="2.5" />
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="14"
+                  fill="rgba(34, 197, 94, 0.35)"
+                />
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="9"
+                  fill="none"
+                  stroke="#22c55e"
+                  strokeWidth="2.5"
+                />
                 <circle
                   cx={px(currentPos.x)}
                   cy={py(currentPos.y)}
@@ -365,9 +470,13 @@ export default function PathMapCanvas({ liveData }) {
               </g>
             )}
 
-            {/* ── 7. Smooth Direction Arrow Indicator ── */}
-            {currentPos && (
-              <g transform={`translate(${px(currentPos.x)},${py(currentPos.y)}) rotate(${currentAngle + 90})`}>
+            {/* 7. Direction arrow (only shown in route mode) */}
+            {currentPos && !useWifi && (
+              <g
+                transform={`translate(${px(currentPos.x)},${py(
+                  currentPos.y
+                )}) rotate(${currentAngle + 90})`}
+              >
                 <polygon
                   points="-9,7 0,-16 9,7 0,2"
                   fill="#0284c7"
@@ -380,7 +489,7 @@ export default function PathMapCanvas({ liveData }) {
           </svg>
         </div>
 
-        {/* ── Zoom Controls (top-right) ── */}
+        {/* Zoom Controls */}
         <div
           style={{
             position: "absolute",
@@ -395,7 +504,11 @@ export default function PathMapCanvas({ liveData }) {
           {[
             { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In" },
             { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out" },
-            { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View (Fit Full Map)" },
+            {
+              icon: <RotateCcw size={16} />,
+              action: handleReset,
+              title: "Reset View (Fit Full Map)",
+            },
           ].map(({ icon, action, title }) => (
             <button
               key={title}
@@ -421,7 +534,7 @@ export default function PathMapCanvas({ liveData }) {
           ))}
         </div>
 
-        {/* ── Status Card (top-left) ── */}
+        {/* Status Card */}
         <div
           style={{
             position: "absolute",
@@ -440,7 +553,6 @@ export default function PathMapCanvas({ liveData }) {
             pointerEvents: "none",
           }}
         >
-          {/* Green pulse dot indicator */}
           <div
             style={{
               width: "10px",
@@ -464,7 +576,9 @@ export default function PathMapCanvas({ liveData }) {
             >
               Current Location
             </span>
-            <span style={{ fontSize: "13px", fontWeight: "800", color: "#0f172a" }}>
+            <span
+              style={{ fontSize: "13px", fontWeight: "800", color: "#0f172a" }}
+            >
               {currentReader.location}
             </span>
           </div>
@@ -482,7 +596,7 @@ export default function PathMapCanvas({ liveData }) {
           </span>
         </div>
 
-        {/* ── Path Legend (bottom-left) ── */}
+        {/* Path Legend */}
         <div
           style={{
             position: "absolute",
