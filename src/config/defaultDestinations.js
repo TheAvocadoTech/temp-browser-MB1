@@ -1,0 +1,111 @@
+// src/config/defaultDestinations.js
+// Predefined destination locations: Key cabinet (Colo 1, 2, 3), Washroom, NOC, Loading area
+
+export const KEY_CABINET_OPTIONS = [
+  {
+    colo: "colo1",
+    label: "Colo 1",
+    subLabel: "Row 5-6 End Point",
+    id: "dest-key-cabinet-colo1",
+    name: "Key cabinet",
+    cabinetColo: "colo1",
+    fullName: "Key Cabinet (Colo 1 - Row 5-6)",
+    description: "Colo 1 Cabinet Location (Row 5-6 End Point)",
+    category: "Cabinet",
+    icon: "key",
+    coords: { x: 70.3, y: 44.4 },
+    readerId: 43,
+    sequence: 15,
+    isDefault: true,
+  },
+  {
+    colo: "colo2",
+    label: "Colo 2",
+    subLabel: "Colo-2 Server Hall",
+    id: "dest-key-cabinet-colo2",
+    name: "Key cabinet",
+    cabinetColo: "colo2",
+    fullName: "Key Cabinet (Colo 2)",
+    description: "Colo 2 Cabinet Location (Server Hall)",
+    category: "Cabinet",
+    icon: "key",
+    coords: { x: 49.5, y: 33.5 },
+    readerId: 46,
+    sequence: 12,
+    isDefault: true,
+  },
+  {
+    colo: "colo3",
+    label: "Colo 3",
+    subLabel: "Colo-3 Server Hall",
+    id: "dest-key-cabinet-colo3",
+    name: "Key cabinet",
+    cabinetColo: "colo3",
+    fullName: "Key Cabinet (Colo 3)",
+    description: "Colo 3 Cabinet Location (Server Hall)",
+    category: "Cabinet",
+    icon: "key",
+    coords: { x: 10.5, y: 35.0 },
+    readerId: 29,
+    sequence: 6,
+    isDefault: true,
+  },
+];
+
+export const getKeyCabinetOption = (coloKey = "colo1") => {
+  return (
+    KEY_CABINET_OPTIONS.find((c) => c.colo === coloKey) || KEY_CABINET_OPTIONS[0]
+  );
+};
+
+export const DEFAULT_DESTINATIONS = [
+  {
+    id: "dest-key-cabinet",
+    name: "Key cabinet",
+    fullName: "Key Cabinet (Colo 1 - Row 5-6)",
+    description: "Colo 1 Cabinet Location (Row 5-6 End Point)",
+    category: "Cabinet",
+    icon: "key",
+    coords: { x: 70.3, y: 44.4 },
+    readerId: 43,
+    sequence: 15,
+    cabinetColo: "colo1",
+    isDefault: true,
+  },
+  {
+    id: "dest-washroom",
+    name: "Washroom",
+    fullName: "Washroom Facilities",
+    description: "Restroom & Washroom Amenities",
+    category: "Amenities",
+    icon: "bath",
+    coords: { x: 19.2, y: 49.5 },
+    readerId: 9025,
+    sequence: 7,
+    isDefault: true,
+  },
+  {
+    id: "dest-noc",
+    name: "NOC",
+    fullName: "NOC / LOC (Operations Center)",
+    description: "Local Operations Center & Server Control Room",
+    category: "Operations",
+    icon: "shield",
+    coords: { x: 26.8, y: 44.9 },
+    readerId: 33,
+    sequence: 6,
+    isDefault: true,
+  },
+  {
+    id: "dest-loading-area",
+    name: "Loading area",
+    fullName: "Loading Gate & Bay",
+    description: "Material Delivery & Logistics Gate",
+    category: "Logistics",
+    icon: "truck",
+    coords: { x: 47.6, y: 45.4 },
+    readerId: 31,
+    sequence: 9,
+    isDefault: true,
+  },
+];

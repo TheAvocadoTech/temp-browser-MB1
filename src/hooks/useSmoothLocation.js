@@ -121,10 +121,12 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
     }
 
     const startPos = { ...posRef.current };
-    const fromIdx = currentWaypointIdxRef.current;
+    const maxIdx = sortedReaders.length - 1;
+    const fromIdx = Math.min(Math.max(0, currentWaypointIdxRef.current), maxIdx);
+    currentWaypointIdxRef.current = fromIdx;
 
     // If already at target position and index, no animation required
-    if (targetIdx === fromIdx && dist(startPos, sortedReaders[targetIdx].coords) < 0.05) {
+    if (targetIdx === fromIdx && dist(startPos, sortedReaders[targetIdx]?.coords) < 0.05) {
       targetWaypointIdxRef.current = targetIdx;
       return;
     }
@@ -139,8 +141,8 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
     if (fromIdx < targetIdx) {
       // Forward progression: visit each reader/waypoint in strict sequence order
       for (let i = fromIdx; i <= targetIdx; i++) {
-        const pt = sortedReaders[i].coords;
-        if (dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
+        const pt = sortedReaders[i]?.coords;
+        if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
           pathNodes.push(pt);
           nodeIndices.push(i);
         }
@@ -285,21 +287,28 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
   const { passedPoints, remainingPoints } = useMemo(() => {
     if (!sortedReaders.length) return { passedPoints: [], remainingPoints: [] };
 
-    const curIdx = activeWaypointIdx;
+    const curIdx = Math.min(Math.max(0, activeWaypointIdx), sortedReaders.length - 1);
 
     // 1. All readers passed in sequence order up to curIdx, plus current pin position
     const passed = [];
     for (let i = 0; i <= curIdx; i++) {
-      if (i < sortedReaders.length) {
+      if (sortedReaders[i]?.coords) {
         passed.push(sortedReaders[i].coords);
       }
     }
-    passed.push(currentPos);
+    if (currentPos) {
+      passed.push(currentPos);
+    }
 
     // 2. All remaining upcoming readers in sequence order starting from current pin position
-    const remaining = [currentPos];
+    const remaining = [];
+    if (currentPos) {
+      remaining.push(currentPos);
+    }
     for (let i = curIdx + 1; i < sortedReaders.length; i++) {
-      remaining.push(sortedReaders[i].coords);
+      if (sortedReaders[i]?.coords) {
+        remaining.push(sortedReaders[i].coords);
+      }
     }
 
     return { passedPoints: passed, remainingPoints: remaining };

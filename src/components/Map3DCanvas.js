@@ -3,7 +3,7 @@ import React, { Suspense, useMemo, useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useTexture, Html, useProgress, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { LocateFixed } from "lucide-react";
+import { LocateFixed, Navigation } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
 import transform from "../config/mapTransform.json";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
@@ -233,18 +233,21 @@ function LiveLocationDropMarker({ coords }) {
   );
 }
 
-function FlatPathLayer({ liveData }) {
+function FlatPathLayer({ liveData, destination, activeRoute }) {
   const apiReaders    = (liveData?.allReaders?.length) ? liveData.allReaders : defaultReaders;
   const currentReader = liveData?.currentReader || defaultReaders[0];
   const currentSeq    = currentReader.sequence || 1;
 
-  // Merge local coords onto live data so edits to rfidReaders.json take effect immediately
+  // Use activeRoute tailored for the destination or merge local coords
   const allReaders = useMemo(() => {
+    if (activeRoute && activeRoute.length > 0) {
+      return activeRoute;
+    }
     return apiReaders.map((r) => {
       const local = defaultReaders.find((d) => d.id === r.id);
       return local ? { ...r, coords: local.coords, location: local.location } : r;
     });
-  }, [apiReaders]);
+  }, [activeRoute, apiReaders]);
 
   const activeReader =
     allReaders.find((r) => r.id === currentReader.id || (currentReader.sequence && r.sequence === currentReader.sequence)) ||
@@ -278,6 +281,8 @@ function FlatPathLayer({ liveData }) {
     return smoothRemaining.map((p) => pctToWorld(p.x, p.y, 0.15));
   }, [smoothRemaining]);
 
+  const destinationReader = destination || allReaders[allReaders.length - 1];
+
   return (
     <group>
       {/* ── 1. Full faint path underlay on 3D floor ── */}
@@ -291,17 +296,22 @@ function FlatPathLayer({ liveData }) {
         />
       )}
 
-      {/* ── 2. Completed Path (Passed segments) — Grey Dashed Line ── */}
+      {/* ── 2. Completed Path (Passed segments) — Solid Line of Same Colour and Opacity ── */}
       {passedPoints3D.length > 1 && (
-        <Line
-          points={passedPoints3D}
-          color="#94a3b8"
-          lineWidth={4}
-          dashed
-          dashScale={2}
-          dashSize={0.6}
-          gapSize={0.4}
-        />
+        <>
+          <Line
+            points={passedPoints3D}
+            color="#0ea5e9"
+            opacity={0.35}
+            transparent
+            lineWidth={8}
+          />
+          <Line
+            points={passedPoints3D}
+            color="#0284c7"
+            lineWidth={4.5}
+          />
+        </>
       )}
 
       {/* ── 3. Active Remaining Path — Glowing Cyan Dashed Line ── */}
@@ -328,11 +338,58 @@ function FlatPathLayer({ liveData }) {
         </>
       )}
 
+      {/* ── 3.1 Destination 3D Target Marker (Red Ring & Flag) ── */}
+      {(() => {
+        const dest = destinationReader;
+        if (!dest?.coords) return null;
+        const [dx, dy, dz] = pctToWorld(dest.coords.x, dest.coords.y, 0.16);
+        return (
+          <group position={[dx, dy, dz]}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.3, 0.48, 32]} />
+              <meshBasicMaterial color="#ef4444" opacity={0.65} transparent depthWrite={false} />
+            </mesh>
+            <mesh position={[0, 0.45, 0]}>
+              <cylinderGeometry args={[0.03, 0.03, 0.9, 16]} />
+              <meshStandardMaterial color="#ef4444" roughness={0.3} />
+            </mesh>
+            <mesh position={[0.18, 0.75, 0]}>
+              <boxGeometry args={[0.36, 0.22, 0.02]} />
+              <meshStandardMaterial color="#ef4444" roughness={0.3} />
+            </mesh>
+          </group>
+        );
+      })()}
+
+      {/* ── 3.5 Checkpoint Reader Station Nodes on 3D floor ── */}
+      {allReaders.map((r) => {
+        if (r.isWaypoint) return null;
+        const [wx, wy, wz] = pctToWorld(r.coords.x, r.coords.y, 0.16);
+        const isCurrent = r.sequence === animatedSeq;
+        const isDestination = r.sequence === destinationReader?.sequence || r.id === destinationReader?.id;
+        const isPassed = r.sequence < animatedSeq;
+        const color = isCurrent ? "#22c55e" : isDestination ? "#ef4444" : isPassed ? "#94a3b8" : "#0284c7";
+
+        return (
+          <group
+            key={`node-3d-${r.id || `${r.coords.x}-${r.coords.y}`}`}
+            position={[wx, wy, wz]}
+          >
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <circleGeometry args={[0.22, 24]} />
+              <meshBasicMaterial color={color} />
+            </mesh>
+          </group>
+        );
+      })}
+
       {/* ── 4. Live Smoothly Moving 3D Drop Pin Marker ── */}
-      <LiveLocationDropMarker
-        coords={currentPos}
-        readerName={activeReader.location}
-      />
+      <group>
+        <LiveLocationDropMarker
+          coords={currentPos}
+          readerName={activeReader.location}
+        />
+      </group>
 
       {/* ── 5. Turn Chevrons flat on 3D floor at direction-change points ── */}
       {allReaders.map((r, i) => {
@@ -448,12 +505,26 @@ function NavigationCameraController({ isManualCamera, setIsManualCamera, recente
   );
 }
 
-export default function Map3DCanvas({ liveData, liveTransform, showFloorplan = false, floorplanOpacity = 0.5 }) {
-  const allReaders    = liveData?.allReaders?.length ? liveData.allReaders : defaultReaders;
+export default function Map3DCanvas({
+  liveData,
+  liveTransform,
+  showFloorplan = false,
+  floorplanOpacity = 0.5,
+  destination,
+  activeRoute,
+  allMergedReaders,
+  onOpenDestinationModal,
+  onOpenReaderManager,
+  onSelectDestination,
+}) {
+  const allReaders = (activeRoute && activeRoute.length > 0)
+    ? activeRoute
+    : (liveData?.allReaders?.length ? liveData.allReaders : defaultReaders);
   const currentReader = liveData?.currentReader || defaultReaders[0];
   const currentSeq    = currentReader.sequence || 1;
   const totalStops    = allReaders.filter((r) => !r.isWaypoint).length;
   const progressPct   = totalStops > 1 ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100) : 0;
+  const destinationReader = destination || allReaders[allReaders.length - 1];
 
   // Manual camera state & Recenter trigger
   const [isManualCamera, setIsManualCamera] = useState(false);
@@ -473,7 +544,11 @@ export default function Map3DCanvas({ liveData, liveTransform, showFloorplan = f
         <Suspense fallback={<Loader />}>
           <FloorplanReference visible={showFloorplan} opacity={floorplanOpacity} />
           <FacilityModel liveTransform={liveTransform} />
-          <FlatPathLayer liveData={liveData} />
+          <FlatPathLayer
+            liveData={liveData}
+            destination={destination}
+            activeRoute={activeRoute}
+          />
           <NavigationCameraController
             isManualCamera={isManualCamera}
             setIsManualCamera={setIsManualCamera}
@@ -482,45 +557,118 @@ export default function Map3DCanvas({ liveData, liveTransform, showFloorplan = f
         </Suspense>
       </Canvas>
 
+      {/* ── Top-Right Action Controls (Destination & Locations) ── */}
+      <div
+        style={{
+          position: "absolute",
+          top: "12px",
+          right: "12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          zIndex: 25,
+        }}
+      >
+        {onOpenDestinationModal && (
+          <button
+            onClick={onOpenDestinationModal}
+            title="Change Destination (Key cabinet, Washroom, NOC, Loading area)"
+            style={{
+              width: "36px",
+              height: "36px",
+              borderRadius: "10px",
+              backgroundColor: "#0284c7",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(2, 132, 199, 0.35)",
+              color: "#ffffff",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Navigation size={18} />
+          </button>
+        )}
+      </div>
+
       {/* ── Status overlay card (top-left) ── */}
       <div
         style={{
           position: "absolute",
           top: "12px",
           left: "12px",
-          backgroundColor: "rgba(255,255,255,0.94)",
+          backgroundColor: "rgba(255,255,255,0.96)",
           backdropFilter: "blur(8px)",
           borderRadius: "14px",
-          padding: "10px 14px",
+          padding: "8px 12px",
           display: "flex",
           alignItems: "center",
           gap: "12px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
           border: "1px solid #e5e7eb",
           fontFamily: "Inter, system-ui, sans-serif",
-          zIndex: 10,
-          pointerEvents: "none",
+          zIndex: 20,
         }}
       >
-        <div
-          style={{
-            width: "10px",
-            height: "10px",
-            borderRadius: "50%",
-            backgroundColor: "#ef4444",
-            boxShadow: "0 0 0 3px rgba(239,68,68,0.25)",
-            flexShrink: 0,
-          }}
-        />
-        <div>
-          <span style={{ fontSize: "9px", fontWeight: "700", color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", display: "block" }}>
-            Current Location
-          </span>
-          <span style={{ fontSize: "13px", fontWeight: "800", color: "#1f2937" }}>
-            {currentReader.location}
-          </span>
+        {/* Current Location */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div
+            style={{
+              width: "9px",
+              height: "9px",
+              borderRadius: "50%",
+              backgroundColor: "#22c55e",
+              boxShadow: "0 0 0 3px rgba(34,197,94,0.3)",
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <span style={{ fontSize: "8.5px", fontWeight: "700", color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", display: "block" }}>
+              Current
+            </span>
+            <span style={{ fontSize: "12px", fontWeight: "800", color: "#1f2937" }}>
+              {currentReader.location}
+            </span>
+          </div>
         </div>
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "#0ea5e9", backgroundColor: "#e0f2fe", padding: "3px 9px", borderRadius: "12px" }}>
+
+        {/* Divider */}
+        <div style={{ width: "1px", height: "24px", backgroundColor: "#e2e8f0" }} />
+
+        {/* Destination Section */}
+        <div
+          onClick={onOpenDestinationModal}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            cursor: onOpenDestinationModal ? "pointer" : "default",
+          }}
+          title="Click to change destination"
+        >
+          <div
+            style={{
+              width: "9px",
+              height: "9px",
+              borderRadius: "50%",
+              backgroundColor: "#ef4444",
+              boxShadow: "0 0 0 3px rgba(239,68,68,0.25)",
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <span style={{ fontSize: "8.5px", fontWeight: "700", color: "#ef4444", letterSpacing: "0.06em", textTransform: "uppercase", display: "block" }}>
+              Destination
+            </span>
+            <span style={{ fontSize: "12px", fontWeight: "800", color: "#1f2937" }}>
+              {destinationReader?.name || destinationReader?.location}
+            </span>
+          </div>
+        </div>
+
+        <span style={{ fontSize: "11px", fontWeight: "700", color: "#0ea5e9", backgroundColor: "#e0f2fe", padding: "3px 8px", borderRadius: "10px" }}>
           {progressPct}%
         </span>
       </div>

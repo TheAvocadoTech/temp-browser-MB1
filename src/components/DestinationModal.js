@@ -1,7 +1,13 @@
 import React from "react";
 import { CheckCircle2, XCircle, User, Tag, Building } from "lucide-react";
 
-export default function DestinationModal({ visitorName, tagCode, company, onClose }) {
+export default function DestinationModal({
+  visitorName,
+  tagCode,
+  company,
+  destinationName,
+  onClose,
+}) {
   return (
     <div
       style={{
@@ -63,7 +69,7 @@ export default function DestinationModal({ visitorName, tagCode, company, onClos
             letterSpacing: "-0.02em",
           }}
         >
-          You reached your cabinet!
+          {destinationName ? `You reached ${destinationName}!` : "You reached your destination!"}
         </h2>
         <p
           style={{
@@ -73,7 +79,7 @@ export default function DestinationModal({ visitorName, tagCode, company, onClos
             lineHeight: "1.5",
           }}
         >
-          Navigation complete. Your tag has arrived at the final destination.
+          Navigation complete. Your tag has arrived at {destinationName || "the destination"}.
         </p>
 
         {/* Visitor Info Card */}
