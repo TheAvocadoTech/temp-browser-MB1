@@ -258,7 +258,7 @@ function FlatPathLayer({
   const activeReader =
     allReaders.find((r) => r.id === currentReader.id) || currentReader;
 
-  // Continuous smooth location interpolation strictly tracking real live coordinates
+  // Continuous smooth location interpolation along corridor checkpoints
   const {
     currentPos,
     currentAngle,
@@ -266,9 +266,9 @@ function FlatPathLayer({
     remainingPoints: smoothRemaining,
     activeSeq,
   } = useSmoothLocation({
-    currentReader,
+    currentReader: activeReader,
     allReaders,
-    baseDuration: 400,
+    baseDuration: 380,
   });
 
   const animatedSeq = activeSeq ?? currentSeq;

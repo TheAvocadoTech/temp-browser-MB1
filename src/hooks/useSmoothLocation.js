@@ -42,7 +42,7 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
 
   // Helper to reliably find a reader index in sortedReaders
   const getReaderIndex = (target) => {
-    if (!target || !sortedReaders.length) return -1;
+    if (!target || !sortedReaders.length) return 0;
 
     // 1. Match by exact ID
     if (target.id !== undefined && target.id !== null) {
@@ -52,18 +52,41 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       if (byId !== -1) return byId;
     }
 
-    // 2. Match by coordinates proximity (within 1.2% map units)
+    // 2. Match by location/name
+    if (target.location || target.name) {
+      const targetName = (target.location || target.name).trim().toLowerCase();
+      const byName = sortedReaders.findIndex((r) => {
+        const rName = (r.location || r.name || "").trim().toLowerCase();
+        return rName && (rName === targetName || rName.includes(targetName) || targetName.includes(rName));
+      });
+      if (byName !== -1) return byName;
+    }
+
+    // 3. Match by coordinates proximity (within 2.0% map units)
     if (target.coords && typeof target.coords.x === "number" && typeof target.coords.y === "number") {
       const byDist = sortedReaders.findIndex(
-        (r) => r.coords && dist(r.coords, target.coords) < 1.2
+        (r) => r.coords && dist(r.coords, target.coords) < 2.0
       );
       if (byDist !== -1) return byDist;
     }
 
-    // DO NOT fallback to matching sequence or closest index, because each route
-    // re-numbers its waypoints independently! Matching sequence or closest index
-    // caused live readers to jump to completely unrelated waypoints on different routes.
-    return -1;
+    // 4. Match closest point along the route
+    if (target.coords) {
+      let closestIdx = 0;
+      let minD = Infinity;
+      sortedReaders.forEach((r, idx) => {
+        if (r.coords) {
+          const d = dist(r.coords, target.coords);
+          if (d < minD) {
+            minD = d;
+            closestIdx = idx;
+          }
+        }
+      });
+      return closestIdx;
+    }
+
+    return 0;
   };
 
   // State
@@ -79,115 +102,100 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
   const isMovingRef = useRef(false);
   const animFrameRef = useRef(null);
   const isFirstRender = useRef(true);
+  const lastTargetKeyRef = useRef(null);
 
   // Initialize on first mount
   useEffect(() => {
-    if (isFirstRender.current) {
-      const initialCoords = currentReader?.coords || sortedReaders[0]?.coords || targetCoords;
-      const initIdx = getReaderIndex(currentReader);
+    if (isFirstRender.current && sortedReaders.length > 0) {
+      const initIdx = getReaderIndex(currentReader || sortedReaders[0]);
+      const initialCoords = sortedReaders[initIdx]?.coords || targetCoords;
 
       posRef.current = initialCoords;
-      currentWaypointIdxRef.current = initIdx !== -1 ? initIdx : 0;
+      currentWaypointIdxRef.current = initIdx;
       targetWaypointIdxRef.current = initIdx;
-      setActiveWaypointIdx(initIdx !== -1 ? initIdx : 0);
+      setActiveWaypointIdx(initIdx);
       setCurrentPos(initialCoords);
       isFirstRender.current = false;
 
-      // Face next reader on load if available
-      if (initIdx !== -1 && initIdx + 1 < sortedReaders.length) {
+      // Face next reader on load
+      if (initIdx + 1 < sortedReaders.length) {
         setCurrentAngle(angleDegrees(initialCoords, sortedReaders[initIdx + 1].coords));
       }
     }
-  }, [sortedReaders, currentReader]);
+  }, [sortedReaders]);
 
   // Main animation effect triggered when currentReader changes
   useEffect(() => {
-    if (!currentReader) return;
+    if (isFirstRender.current || !sortedReaders.length || !currentReader) return;
 
-    const realTargetCoords = currentReader.coords || targetCoords;
     const targetIdx = getReaderIndex(currentReader);
+    const finalDestinationCoords = sortedReaders[targetIdx]?.coords || currentReader.coords || targetCoords;
+    const targetKey = `${targetIdx}_${currentReader?.id || ""}_${finalDestinationCoords.x.toFixed(1)}_${finalDestinationCoords.y.toFixed(1)}`;
 
-    // Initial load handling if not yet initialized
-    if (isFirstRender.current) {
-      posRef.current = realTargetCoords;
-      currentWaypointIdxRef.current = targetIdx !== -1 ? targetIdx : 0;
-      targetWaypointIdxRef.current = targetIdx;
-      setActiveWaypointIdx(targetIdx !== -1 ? targetIdx : 0);
-      setCurrentPos(realTargetCoords);
-      isFirstRender.current = false;
+    // If target has not changed and animation is already running towards it, DO NOT interrupt!
+    // (Crucial: prevents 300ms polling from interrupting the ongoing corridor path)
+    if (targetKey === lastTargetKeyRef.current && isMovingRef.current) {
       return;
     }
 
-    // Check if position already matches
     const startPos = { ...posRef.current };
-    if (dist(startPos, realTargetCoords) < 0.05) {
+    const maxIdx = sortedReaders.length - 1;
+    const fromIdx = Math.min(Math.max(0, currentWaypointIdxRef.current), maxIdx);
+    currentWaypointIdxRef.current = fromIdx;
+
+    // If already at target position and index, no animation required
+    if (targetIdx === fromIdx && dist(startPos, finalDestinationCoords) < 0.05) {
+      lastTargetKeyRef.current = targetKey;
       targetWaypointIdxRef.current = targetIdx;
       return;
     }
 
-    // If target has not changed and animation is already running towards it, don't interrupt
-    if (
-      targetIdx !== -1 &&
-      targetIdx === targetWaypointIdxRef.current &&
-      isMovingRef.current
-    ) {
-      return;
-    }
-
+    lastTargetKeyRef.current = targetKey;
     targetWaypointIdxRef.current = targetIdx;
 
-    let cleanNodes = [];
-    let cleanIndices = [];
+    // ── Build the path STRICTLY along every reader in sequence order ──────────
+    // Never skip any intermediate reader or waypoint, and never cut through walls!
+    const pathNodes = [startPos];
+    const nodeIndices = [fromIdx];
 
-    if (targetIdx !== -1 && sortedReaders.length > 0) {
-      // Reader is on the active route: follow sequential route path
-      const maxIdx = sortedReaders.length - 1;
-      const fromIdx = Math.min(Math.max(0, currentWaypointIdxRef.current), maxIdx);
-      currentWaypointIdxRef.current = fromIdx;
-
-      const pathNodes = [startPos];
-      const nodeIndices = [fromIdx];
-
-      if (fromIdx < targetIdx) {
-        for (let i = fromIdx; i <= targetIdx; i++) {
-          const pt = sortedReaders[i]?.coords;
-          if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
-            pathNodes.push(pt);
-            nodeIndices.push(i);
-          }
+    if (fromIdx < targetIdx) {
+      // Forward progression: visit each reader/waypoint in strict sequence order
+      for (let i = fromIdx; i <= targetIdx; i++) {
+        const pt = sortedReaders[i]?.coords;
+        if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
+          pathNodes.push(pt);
+          nodeIndices.push(i);
         }
-      } else if (fromIdx > targetIdx) {
-        for (let i = fromIdx; i >= targetIdx; i--) {
-          const pt = sortedReaders[i]?.coords;
-          if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
-            pathNodes.push(pt);
-            nodeIndices.push(i);
-          }
-        }
-      } else {
-        pathNodes.push(realTargetCoords);
-        nodeIndices.push(targetIdx);
       }
-
-      for (let i = 0; i < pathNodes.length; i++) {
-        if (i === 0 || dist(cleanNodes[cleanNodes.length - 1], pathNodes[i]) > 0.05) {
-          cleanNodes.push(pathNodes[i]);
-          cleanIndices.push(nodeIndices[i]);
+    } else if (fromIdx > targetIdx) {
+      // Backward progression: visit each reader in reverse sequence order
+      for (let i = fromIdx; i >= targetIdx; i--) {
+        const pt = sortedReaders[i]?.coords;
+        if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
+          pathNodes.push(pt);
+          nodeIndices.push(i);
         }
       }
     } else {
-      // Reader is off-route or targetIdx is -1: move smoothly directly to realTargetCoords
-      cleanNodes = [startPos, realTargetCoords];
-      cleanIndices = [currentWaypointIdxRef.current, currentWaypointIdxRef.current];
+      pathNodes.push(finalDestinationCoords);
+      nodeIndices.push(targetIdx);
+    }
+
+    // Clean up duplicate or near-identical adjacent nodes
+    const cleanNodes = [];
+    const cleanIndices = [];
+    for (let i = 0; i < pathNodes.length; i++) {
+      if (i === 0 || dist(cleanNodes[cleanNodes.length - 1], pathNodes[i]) > 0.05) {
+        cleanNodes.push(pathNodes[i]);
+        cleanIndices.push(nodeIndices[i]);
+      }
     }
 
     if (cleanNodes.length < 2) {
-      posRef.current = realTargetCoords;
-      setCurrentPos(realTargetCoords);
-      if (targetIdx !== -1) {
-        currentWaypointIdxRef.current = targetIdx;
-        setActiveWaypointIdx(targetIdx);
-      }
+      posRef.current = finalDestinationCoords;
+      setCurrentPos(finalDestinationCoords);
+      currentWaypointIdxRef.current = targetIdx;
+      setActiveWaypointIdx(targetIdx);
       setIsMoving(false);
       isMovingRef.current = false;
       return;
@@ -206,18 +214,18 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
     }
 
     if (totalPathDist < 0.05) {
-      posRef.current = realTargetCoords;
-      setCurrentPos(realTargetCoords);
-      if (targetIdx !== -1) {
-        currentWaypointIdxRef.current = targetIdx;
-        setActiveWaypointIdx(targetIdx);
-      }
+      posRef.current = finalDestinationCoords;
+      setCurrentPos(finalDestinationCoords);
+      currentWaypointIdxRef.current = targetIdx;
+      setActiveWaypointIdx(targetIdx);
       setIsMoving(false);
       isMovingRef.current = false;
       return;
     }
 
-    const hopCount = targetIdx !== -1 ? Math.max(1, Math.abs(targetIdx - currentWaypointIdxRef.current)) : 1;
+    // Scale duration with the number of reader hops so traversing multiple missed readers
+    // moves at a steady, natural walking pace along the corridor (~350ms per hop)
+    const hopCount = Math.max(1, Math.abs(targetIdx - fromIdx));
     const moveDuration = Math.min(Math.max(hopCount * baseDuration, 350), 3000);
 
     const startTime = performance.now();
@@ -234,6 +242,7 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       const easedProgress = easeInOutCubic(rawProgress);
       const currentDist = easedProgress * totalPathDist;
 
+      // Find active segment
       let segIdx = 0;
       for (let i = 0; i < segmentDists.length; i++) {
         if (currentDist >= cumDists[i] && currentDist <= cumDists[i + 1]) {
@@ -258,6 +267,7 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       setCurrentPos(newPos);
       setCurrentAngle(currentAngleDeg);
 
+      // Track the node index reached as the pin passes each reader checkpoint
       const currentHopIdx = cleanIndices[segIdx];
       if (currentHopIdx !== undefined && currentHopIdx !== currentWaypointIdxRef.current) {
         currentWaypointIdxRef.current = currentHopIdx;
@@ -267,17 +277,17 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       if (rawProgress < 1) {
         animFrameRef.current = requestAnimationFrame(animate);
       } else {
-        posRef.current = realTargetCoords;
-        setCurrentPos(realTargetCoords);
-        if (targetIdx !== -1) {
-          currentWaypointIdxRef.current = targetIdx;
-          setActiveWaypointIdx(targetIdx);
-          if (targetIdx + 1 < sortedReaders.length) {
-            setCurrentAngle(angleDegrees(realTargetCoords, sortedReaders[targetIdx + 1].coords));
-          }
-        }
+        posRef.current = finalDestinationCoords;
+        setCurrentPos(finalDestinationCoords);
+        currentWaypointIdxRef.current = targetIdx;
+        setActiveWaypointIdx(targetIdx);
         setIsMoving(false);
         isMovingRef.current = false;
+
+        // Angle to face next reader upon arrival
+        if (targetIdx + 1 < sortedReaders.length) {
+          setCurrentAngle(angleDegrees(finalDestinationCoords, sortedReaders[targetIdx + 1].coords));
+        }
       }
     };
 
@@ -288,7 +298,7 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [currentReader?.id, currentReader?.coords?.x, currentReader?.coords?.y, sortedReaders, baseDuration]);
+  }, [currentReader?.id, currentReader?.location, currentReader?.coords?.x, currentReader?.coords?.y, sortedReaders, baseDuration]);
 
   // Compute dynamic passed and remaining paths strictly along the reader corridor route
   const { passedPoints, remainingPoints } = useMemo(() => {
