@@ -3,7 +3,7 @@ import React, { Suspense, useMemo, useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useTexture, Html, useProgress, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { LocateFixed, Navigation } from "lucide-react";
+import { LocateFixed } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
 import transform from "../config/mapTransform.json";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
@@ -233,7 +233,13 @@ function LiveLocationDropMarker({ coords }) {
   );
 }
 
-function FlatPathLayer({ liveData, destination, activeRoute }) {
+function FlatPathLayer({
+  liveData,
+  destination,
+  activeRoute,
+  selectedMarker,
+  setSelectedMarker,
+}) {
   const apiReaders    = (liveData?.allReaders?.length) ? liveData.allReaders : defaultReaders;
   const currentReader = liveData?.currentReader || defaultReaders[0];
   const currentSeq    = currentReader.sequence || 1;
@@ -250,10 +256,9 @@ function FlatPathLayer({ liveData, destination, activeRoute }) {
   }, [activeRoute, apiReaders]);
 
   const activeReader =
-    allReaders.find((r) => r.id === currentReader.id || (currentReader.sequence && r.sequence === currentReader.sequence)) ||
-    currentReader;
+    allReaders.find((r) => r.id === currentReader.id) || currentReader;
 
-  // Continuous smooth location interpolation
+  // Continuous smooth location interpolation strictly tracking real live coordinates
   const {
     currentPos,
     currentAngle,
@@ -261,7 +266,7 @@ function FlatPathLayer({ liveData, destination, activeRoute }) {
     remainingPoints: smoothRemaining,
     activeSeq,
   } = useSmoothLocation({
-    currentReader: activeReader,
+    currentReader,
     allReaders,
     baseDuration: 400,
   });
@@ -296,19 +301,21 @@ function FlatPathLayer({ liveData, destination, activeRoute }) {
         />
       )}
 
-      {/* ── 2. Completed Path (Passed segments) — Solid Line of Same Colour and Opacity ── */}
+      {/* ── 2. Completed Path (Passed segments) — Translucent Red (20-30%) ── */}
       {passedPoints3D.length > 1 && (
         <>
           <Line
             points={passedPoints3D}
-            color="#0ea5e9"
-            opacity={0.35}
+            color="#ef4444"
+            opacity={0.12}
             transparent
             lineWidth={8}
           />
           <Line
             points={passedPoints3D}
-            color="#0284c7"
+            color="#ef4444"
+            opacity={0.25}
+            transparent
             lineWidth={4.5}
           />
         </>
@@ -344,10 +351,26 @@ function FlatPathLayer({ liveData, destination, activeRoute }) {
         if (!dest?.coords) return null;
         const [dx, dy, dz] = pctToWorld(dest.coords.x, dest.coords.y, 0.16);
         return (
-          <group position={[dx, dy, dz]}>
+          <group
+            position={[dx, dy, dz]}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedMarker && setSelectedMarker(dest);
+            }}
+          >
+            {/* Clickable invisible hit sphere */}
+            <mesh>
+              <sphereGeometry args={[0.7, 16, 16]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
               <ringGeometry args={[0.3, 0.48, 32]} />
-              <meshBasicMaterial color="#ef4444" opacity={0.65} transparent depthWrite={false} />
+              <meshBasicMaterial
+                color="#ef4444"
+                opacity={0.65}
+                transparent
+                depthWrite={false}
+              />
             </mesh>
             <mesh position={[0, 0.45, 0]}>
               <cylinderGeometry args={[0.03, 0.03, 0.9, 16]} />
@@ -366,22 +389,99 @@ function FlatPathLayer({ liveData, destination, activeRoute }) {
         if (r.isWaypoint) return null;
         const [wx, wy, wz] = pctToWorld(r.coords.x, r.coords.y, 0.16);
         const isCurrent = r.sequence === animatedSeq;
-        const isDestination = r.sequence === destinationReader?.sequence || r.id === destinationReader?.id;
+        const isDestination =
+          r.sequence === destinationReader?.sequence ||
+          r.id === destinationReader?.id;
         const isPassed = r.sequence < animatedSeq;
-        const color = isCurrent ? "#22c55e" : isDestination ? "#ef4444" : isPassed ? "#94a3b8" : "#0284c7";
+        const isSelected =
+          selectedMarker?.id === r.id ||
+          (selectedMarker?.coords?.x === r.coords.x &&
+            selectedMarker?.coords?.y === r.coords.y);
+        const color = isCurrent
+          ? "#22c55e"
+          : isDestination
+            ? "#ef4444"
+            : isSelected
+              ? "#38bdf8"
+              : isPassed
+                ? "#94a3b8"
+                : "#0284c7";
 
         return (
           <group
             key={`node-3d-${r.id || `${r.coords.x}-${r.coords.y}`}`}
             position={[wx, wy, wz]}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedMarker && setSelectedMarker(r);
+            }}
           >
+            {/* Clickable hit mesh */}
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
-              <circleGeometry args={[0.22, 24]} />
+              <circleGeometry args={[0.55, 16]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
+            {isSelected && (
+              <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[0.26, 0.36, 24]} />
+                <meshBasicMaterial color="#38bdf8" />
+              </mesh>
+            )}
+            <mesh rotation={[-Math.PI / 2, 0, 0]}>
+              <circleGeometry args={[isSelected ? 0.26 : 0.22, 24]} />
               <meshBasicMaterial color={color} />
             </mesh>
           </group>
         );
       })}
+
+      {/* ── 3.6 Selected Location 3D Name Callout Bubble ── */}
+      {selectedMarker?.coords &&
+        (() => {
+          const [wx, wy, wz] = pctToWorld(
+            selectedMarker.coords.x,
+            selectedMarker.coords.y,
+            0.2,
+          );
+          return (
+            <Html
+              position={[wx, wy + 0.95, wz]}
+              center
+              distanceFactor={14}
+              zIndexRange={[100, 0]}
+            >
+              <div
+                style={{
+                  backgroundColor: "rgba(15, 23, 42, 0.94)",
+                  backdropFilter: "blur(10px)",
+                  color: "#ffffff",
+                  borderRadius: "10px",
+                  padding: "6px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.35)",
+                  border: "1px solid rgba(56, 189, 248, 0.5)",
+                  whiteSpace: "nowrap",
+                  pointerEvents: "auto",
+                  cursor: "pointer",
+                  fontFamily: "Inter, system-ui, sans-serif",
+                  fontSize: "11px",
+                  fontWeight: "800",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedMarker && setSelectedMarker(null);
+                }}
+              >
+                <span style={{ color: "#38bdf8" }}>
+                  📍 {selectedMarker.location || selectedMarker.name || "Location"}
+                </span>
+                <span style={{ fontSize: "10px", opacity: 0.8 }}>✕</span>
+              </div>
+            </Html>
+          );
+        })()}
 
       {/* ── 4. Live Smoothly Moving 3D Drop Pin Marker ── */}
       <group>
@@ -526,6 +626,9 @@ export default function Map3DCanvas({
   const progressPct   = totalStops > 1 ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100) : 0;
   const destinationReader = destination || allReaders[allReaders.length - 1];
 
+  // Selected marker state for click inspection
+  const [selectedMarker, setSelectedMarker] = useState(null);
+
   // Manual camera state & Recenter trigger
   const [isManualCamera, setIsManualCamera] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
@@ -548,6 +651,8 @@ export default function Map3DCanvas({
             liveData={liveData}
             destination={destination}
             activeRoute={activeRoute}
+            selectedMarker={selectedMarker}
+            setSelectedMarker={setSelectedMarker}
           />
           <NavigationCameraController
             isManualCamera={isManualCamera}
@@ -557,41 +662,6 @@ export default function Map3DCanvas({
         </Suspense>
       </Canvas>
 
-      {/* ── Top-Right Action Controls (Destination & Locations) ── */}
-      <div
-        style={{
-          position: "absolute",
-          top: "12px",
-          right: "12px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-          zIndex: 25,
-        }}
-      >
-        {onOpenDestinationModal && (
-          <button
-            onClick={onOpenDestinationModal}
-            title="Change Destination (Key cabinet, Washroom, NOC, Loading area)"
-            style={{
-              width: "36px",
-              height: "36px",
-              borderRadius: "10px",
-              backgroundColor: "#0284c7",
-              border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 2px 8px rgba(2, 132, 199, 0.35)",
-              color: "#ffffff",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <Navigation size={18} />
-          </button>
-        )}
-      </div>
 
       {/* ── Status overlay card (top-left) ── */}
       <div
@@ -673,14 +743,98 @@ export default function Map3DCanvas({
         </span>
       </div>
 
+      {/* ── Selected Location Card (bottom) ── */}
+      {selectedMarker && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "20px",
+            left: "16px",
+            backgroundColor: "rgba(15, 23, 42, 0.94)",
+            backdropFilter: "blur(10px)",
+            color: "#ffffff",
+            borderRadius: "14px",
+            padding: "10px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            border: "1px solid rgba(56, 189, 248, 0.4)",
+            zIndex: 35,
+            fontSize: "12px",
+            fontFamily: "Inter, system-ui, sans-serif",
+            animation: "slideUp 0.2s ease-out",
+          }}
+        >
+          <div
+            style={{
+              width: "9px",
+              height: "9px",
+              borderRadius: "50%",
+              backgroundColor: "#38bdf8",
+              boxShadow: "0 0 8px #38bdf8",
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <span
+              style={{
+                fontWeight: "800",
+                color: "#f8fafc",
+                fontSize: "13px",
+                display: "block",
+              }}
+            >
+              {selectedMarker.location || selectedMarker.name}
+            </span>
+            {selectedMarker.coords && (
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "#94a3b8",
+                  display: "block",
+                  marginTop: "2px",
+                }}
+              >
+                Coordinates: X: {selectedMarker.coords.x}% · Y:{" "}
+                {selectedMarker.coords.y}%
+                {selectedMarker.sequence
+                  ? ` · Stop #${selectedMarker.sequence}`
+                  : ""}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setSelectedMarker(null)}
+            style={{
+              background: "rgba(255,255,255,0.15)",
+              border: "none",
+              color: "#ffffff",
+              borderRadius: "6px",
+              width: "22px",
+              height: "22px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              fontSize: "11px",
+              marginLeft: "4px",
+            }}
+            title="Close"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* ── Floating Recenter Button (Appears when user manually interacts with camera) ── */}
       {isManualCamera && (
         <button
           onClick={handleRecenter}
           style={{
             position: "absolute",
-            bottom: "24px",
-            right: "20px",
+            bottom: "74px",
+            right: "16px",
             zIndex: 40,
             display: "flex",
             alignItems: "center",

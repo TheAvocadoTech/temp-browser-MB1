@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import defaultReaders from "../config/rfidReaders.json";
-import { ZoomIn, ZoomOut, RotateCcw, Navigation, Crosshair } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Crosshair } from "lucide-react";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
 
 // ── Geometry helpers ─────────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ export default function PathMapCanvas({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [selectedMarker, setSelectedMarker] = useState(null);
   const containerRef = useRef(null);
   const svgRef = useRef(null);
 
@@ -84,23 +85,12 @@ export default function PathMapCanvas({
     });
   }, [activeRoute, apiReaders]);
 
-  // All facility readers (base readers + any custom added locations)
-  const allFacilityReaders = useMemo(() => {
-    const source = allMergedReaders && allMergedReaders.length > 0 ? allMergedReaders : defaultReaders;
-    return source.filter((r) => r && r.coords && typeof r.coords.x === "number" && typeof r.coords.y === "number");
-  }, [allMergedReaders]);
 
-  // Off-route facility readers not part of activeRoute
-  const offRouteReaders = useMemo(() => {
-    const routeIds = new Set(allReaders.map((r) => r.id));
-    return allFacilityReaders.filter((r) => !routeIds.has(r.id) && !r.isWaypoint);
-  }, [allFacilityReaders, allReaders]);
 
   const activeReader =
-    allReaders.find((r) => r.id === currentReader.id || (currentReader.sequence && r.sequence === currentReader.sequence)) ||
-    currentReader;
+    allReaders.find((r) => r.id === currentReader.id) || currentReader;
 
-  // Continuous smooth location interpolation
+  // Continuous smooth location interpolation strictly tracking real live coordinates
   const {
     currentPos,
     currentAngle,
@@ -108,7 +98,7 @@ export default function PathMapCanvas({
     remainingPoints: smoothRemaining,
     activeSeq,
   } = useSmoothLocation({
-    currentReader: activeReader,
+    currentReader,
     allReaders,
     baseDuration: 400,
   });
@@ -131,27 +121,36 @@ export default function PathMapCanvas({
   // - Key Cabinet (Colo 2) -> /map_colo2.png
   // - Key Cabinet (Colo 3) -> /map_colo3.png
   // - Washroom, NOC, Loading area (and other non-cabinet locations) -> /map_nodata.png
+  // Dynamic floorplan image determination:
+  // - Key Cabinet (Colo 1) / Colo 1 -> /map_colo1.png
+  // - Key Cabinet (Colo 2) / Colo 2 -> /map_colo2.png
+  // - Key Cabinet (Colo 3) / Colo 3 -> /map_colo3.png
+  // - Washroom, NOC, Loading area (and other non-cabinet locations) -> /map_nodata.png
   const floorplanImage = useMemo(() => {
-    const isCabinet =
-      destination?.category === "Cabinet" ||
-      destination?.id?.startsWith("dest-key-cabinet") ||
-      destination?.name?.toLowerCase().includes("key cabinet") ||
-      destination?.name?.toLowerCase().includes("cabinet");
+    const destName = destination?.name || "";
+    const destId = destination?.id || "";
 
-    if (isCabinet) {
-      const colo = destination?.cabinetColo || selectedKeyCabinetColo || "colo1";
-      if (colo === "colo2") {
-        return `${process.env.PUBLIC_URL}/map_colo2.png`;
-      }
-      if (colo === "colo3") {
-        return `${process.env.PUBLIC_URL}/map_colo3.png`;
-      }
+    // Key cabinet is NOT Colo 1, 2, or 3
+    if (/key\s*cabin[ei]t/i.test(destName) || /key\s*cabin[ei]t/i.test(destId)) {
+      return `${process.env.PUBLIC_URL}/map_nodata.png`;
+    }
+
+    const isColo3 = (str) => /colo\s*[-_]?\s*(3|three)/i.test(str || "");
+    const isColo2 = (str) => /colo\s*[-_]?\s*(2|two)/i.test(str || "");
+    const isColo1 = (str) => /colo\s*[-_]?\s*(1|one)/i.test(str || "");
+
+    if (isColo3(destName) || isColo3(destId)) {
+      return `${process.env.PUBLIC_URL}/map_colo3.png`;
+    }
+    if (isColo2(destName) || isColo2(destId)) {
+      return `${process.env.PUBLIC_URL}/map_colo2.png`;
+    }
+    if (isColo1(destName) || isColo1(destId)) {
       return `${process.env.PUBLIC_URL}/map_colo1.png`;
     }
 
-    // Default for Washroom, NOC, Loading area:
     return `${process.env.PUBLIC_URL}/map_nodata.png`;
-  }, [destination, selectedKeyCabinetColo]);
+  }, [destination]);
 
   // Destination
   const destinationReader = destination || allReaders[allReaders.length - 1];
@@ -330,27 +329,26 @@ export default function PathMapCanvas({
               strokeLinejoin="round"
             />
 
-            {/* ── 2. Completed Path (Passed segments) — Solid Line of Same Colour and Opacity ── */}
+            {/* ── 2. Completed Path (Passed segments) — Translucent Red (20-30%) ── */}
             {smoothPassed.length > 1 && (
               <>
                 {/* Glow for completed path */}
                 <polyline
                   points={passedPoints}
                   fill="none"
-                  stroke="rgba(14, 165, 233, 0.25)"
+                  stroke="rgba(239, 68, 68, 0.12)"
                   strokeWidth="8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                {/* Core Solid Line of same colour (#0284c7) and opacity */}
+                {/* Core Translucent Red Line (25% opacity) */}
                 <polyline
                   points={passedPoints}
                   fill="none"
-                  stroke="#0284c7"
+                  stroke="rgba(239, 68, 68, 0.25)"
                   strokeWidth="3.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity="1"
                 />
               </>
             )}
@@ -424,55 +422,64 @@ export default function PathMapCanvas({
               );
             })}
 
-            {/* ── 4.9 Off-Route Facility Reader Locations ── */}
-            {offRouteReaders.map((r) => {
-              const cx = px(r.coords.x);
-              const cy = py(r.coords.y);
-
-              return (
-                <g key={`facility-${r.id || `${r.coords.x}-${r.coords.y}`}`} pointerEvents="none">
-                  <title>{r.location || r.name || "Reader Location"}</title>
-                  {/* Subtle outer dashed halo */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r="7"
-                    fill="none"
-                    stroke="#94a3b8"
-                    strokeWidth="1.2"
-                    strokeDasharray="2 2"
-                    opacity="0.65"
-                  />
-                  {/* Base station dot */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={3.2}
-                    fill="#94a3b8"
-                    stroke="#ffffff"
-                    strokeWidth="1.2"
-                    filter="url(#node-shadow)"
-                  />
-                </g>
-              );
-            })}
 
             {/* ── 5. Fixed Reader Checkpoint Stations ── */}
             {allReaders.map((r) => {
-              if (r.isWaypoint) return null;
               const cx = px(r.coords.x);
               const cy = py(r.coords.y);
               const isPassed = r.sequence < animatedSeq;
               const isCurrent = r.sequence === animatedSeq;
               const isDestination =
-                r.sequence === destinationReader?.sequence || r.id === destinationReader?.id;
+                r.sequence === destinationReader?.sequence ||
+                r.id === destinationReader?.id;
+              const isSelected =
+                selectedMarker?.id === r.id ||
+                (selectedMarker?.coords?.x === r.coords.x &&
+                  selectedMarker?.coords?.y === r.coords.y);
+
+              if (r.isWaypoint) {
+                return (
+                  <g
+                    key={`wp-${r.id || `${r.coords.x}-${r.coords.y}`}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedMarker(r);
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <title>{r.location || r.name || "Waypoint"}</title>
+                    <circle cx={cx} cy={cy} r="12" fill="transparent" />
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={isSelected ? 4 : 2.5}
+                      fill={isSelected ? "#0284c7" : "#38bdf8"}
+                      stroke="#ffffff"
+                      strokeWidth="1"
+                    />
+                  </g>
+                );
+              }
 
               // Colors based on status
-              const nodeBg = isCurrent ? "#22c55e" : isPassed ? "#94a3b8" : "#0284c7";
+              const nodeBg = isCurrent
+                ? "#22c55e"
+                : isPassed
+                  ? "#94a3b8"
+                  : "#0284c7";
 
               return (
-                <g key={r.id || `${r.coords.x}-${r.coords.y}`} pointerEvents="none">
+                <g
+                  key={r.id || `${r.coords.x}-${r.coords.y}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedMarker(r);
+                  }}
+                  style={{ cursor: "pointer" }}
+                >
                   <title>{r.location || r.name || "Reader Location"}</title>
+                  {/* Invisible hit target for easy tapping */}
+                  <circle cx={cx} cy={cy} r="14" fill="transparent" />
 
                   {/* Destination Marker Ring */}
                   {isDestination && (
@@ -487,14 +494,34 @@ export default function PathMapCanvas({
                     />
                   )}
 
+                  {/* Selection indicator ring */}
+                  {isSelected && (
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r="10"
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth="2"
+                    />
+                  )}
+
                   {/* Node Dot */}
                   <circle
                     cx={cx}
                     cy={cy}
                     r={isCurrent ? 4.5 : isDestination ? 4.5 : 3}
-                    fill={isDestination && !isPassed ? "#ef4444" : nodeBg}
+                    fill={
+                      isDestination && !isPassed
+                        ? "#ef4444"
+                        : isSelected
+                          ? "#0284c7"
+                          : nodeBg
+                    }
                     stroke="#ffffff"
-                    strokeWidth={isCurrent || isDestination ? 1.8 : 1}
+                    strokeWidth={
+                      isCurrent || isDestination || isSelected ? 1.8 : 1
+                    }
                     filter="url(#node-shadow)"
                   />
                 </g>
@@ -505,19 +532,45 @@ export default function PathMapCanvas({
             {destinationReader?.coords && (
               <g
                 transform={`translate(${px(destinationReader.coords.x)},${py(destinationReader.coords.y)})`}
-                pointerEvents="none"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedMarker(destinationReader);
+                }}
+                style={{ cursor: "pointer" }}
               >
-                <circle r="14" fill="none" stroke="#ef4444" strokeWidth="2.2" strokeDasharray="3 3">
-                  <animate attributeName="r" values="10;17;10" dur="2.2s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.9;0.2;0.9" dur="2.2s" repeatCount="indefinite" />
+                <circle
+                  r="14"
+                  fill="none"
+                  stroke="#ef4444"
+                  strokeWidth="2.2"
+                  strokeDasharray="3 3"
+                >
+                  <animate
+                    attributeName="r"
+                    values="10;17;10"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    values="0.9;0.2;0.9"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
                 </circle>
-                <circle r="5.5" fill="#ef4444" stroke="#ffffff" strokeWidth="2" filter="url(#node-shadow)" />
+                <circle
+                  r="5.5"
+                  fill="#ef4444"
+                  stroke="#ffffff"
+                  strokeWidth="2"
+                  filter="url(#node-shadow)"
+                />
                 {/* Destination name label tag */}
                 <g transform="translate(0, -15)">
                   <rect
-                    x="-42"
+                    x="-48"
                     y="-14"
-                    width="84"
+                    width="96"
                     height="16"
                     rx="8"
                     fill="#0f172a"
@@ -532,7 +585,70 @@ export default function PathMapCanvas({
                     textAnchor="middle"
                     fontFamily="Inter, system-ui, sans-serif"
                   >
-                    🎯 {destinationReader.name || destinationReader.location || "Destination"}
+                    🎯{" "}
+                    {destinationReader.name ||
+                      destinationReader.location ||
+                      "Destination"}
+                  </text>
+                </g>
+              </g>
+            )}
+
+            {/* ── 5.5 Interactive Clicked Location Callout Bubble ── */}
+            {selectedMarker?.coords && (
+              <g
+                transform={`translate(${px(selectedMarker.coords.x)},${py(selectedMarker.coords.y)})`}
+                style={{ cursor: "pointer" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedMarker(null);
+                }}
+              >
+                {/* Glowing ring */}
+                <circle r="12" fill="none" stroke="#0284c7" strokeWidth="2.5">
+                  <animate
+                    attributeName="r"
+                    values="8;14;8"
+                    dur="1.8s"
+                    repeatCount="indefinite"
+                  />
+                  <animate
+                    attributeName="opacity"
+                    values="1;0.3;1"
+                    dur="1.8s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+
+                {/* Speech Bubble Tag */}
+                <g transform="translate(0, -20)">
+                  <rect
+                    x="-75"
+                    y="-22"
+                    width="150"
+                    height="22"
+                    rx="8"
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    strokeWidth="1.2"
+                    filter="url(#node-shadow)"
+                  />
+                  <polygon
+                    points="-5,0 5,0 0,5"
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    strokeWidth="0.8"
+                  />
+                  <text
+                    x="0"
+                    y="-7"
+                    fill="#ffffff"
+                    fontSize="9.5"
+                    fontWeight="800"
+                    textAnchor="middle"
+                    fontFamily="Inter, system-ui, sans-serif"
+                  >
+                    📍 {selectedMarker.location || selectedMarker.name || "Location"}
                   </text>
                 </g>
               </g>
@@ -598,28 +714,7 @@ export default function PathMapCanvas({
             zIndex: 25,
           }}
         >
-          {onOpenDestinationModal && (
-            <button
-              onClick={onOpenDestinationModal}
-              title="Change Destination (Key cabinet, Washroom, NOC, Loading area)"
-              style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "10px",
-                backgroundColor: "#0284c7",
-                border: "none",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                boxShadow: "0 2px 8px rgba(2, 132, 199, 0.35)",
-                color: "#ffffff",
-                transition: "all 0.15s ease",
-              }}
-            >
-              <Navigation size={18} />
-            </button>
-          )}
+
 
           {[
             { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In" },
@@ -737,9 +832,7 @@ export default function PathMapCanvas({
                 Destination
               </span>
               <span style={{ fontSize: "12px", fontWeight: "800", color: "#0f172a" }}>
-                {destination?.category === "Cabinet"
-                  ? `Key cabinet (${destination.cabinetColo === "colo2" ? "Colo 2" : destination.cabinetColo === "colo3" ? "Colo 3" : "Colo 1"})`
-                  : destination?.name || destinationReader.name || destinationReader.location}
+                {destination?.name || destinationReader?.name || destinationReader?.location || "Destination"}
               </span>
             </div>
           </div>
@@ -758,6 +851,89 @@ export default function PathMapCanvas({
             {currentStopIndex} / {totalStops}
           </span>
         </div>
+
+        {/* ── Selected Location Card (bottom) ── */}
+        {selectedMarker && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: "54px",
+              left: "12px",
+              backgroundColor: "rgba(15, 23, 42, 0.94)",
+              backdropFilter: "blur(10px)",
+              color: "#ffffff",
+              borderRadius: "14px",
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+              border: "1px solid rgba(56, 189, 248, 0.4)",
+              zIndex: 30,
+              fontSize: "12px",
+              animation: "slideUp 0.2s ease-out",
+            }}
+          >
+            <div
+              style={{
+                width: "9px",
+                height: "9px",
+                borderRadius: "50%",
+                backgroundColor: "#38bdf8",
+                boxShadow: "0 0 8px #38bdf8",
+                flexShrink: 0,
+              }}
+            />
+            <div>
+              <span
+                style={{
+                  fontWeight: "800",
+                  color: "#f8fafc",
+                  fontSize: "13px",
+                  display: "block",
+                }}
+              >
+                {selectedMarker.location || selectedMarker.name}
+              </span>
+              {selectedMarker.coords && (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#94a3b8",
+                    display: "block",
+                    marginTop: "2px",
+                  }}
+                >
+                  Coordinates: X: {selectedMarker.coords.x}% · Y:{" "}
+                  {selectedMarker.coords.y}%
+                  {selectedMarker.sequence
+                    ? ` · Stop #${selectedMarker.sequence}`
+                    : ""}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setSelectedMarker(null)}
+              style={{
+                background: "rgba(255,255,255,0.15)",
+                border: "none",
+                color: "#ffffff",
+                borderRadius: "6px",
+                width: "22px",
+                height: "22px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                fontSize: "11px",
+                marginLeft: "4px",
+              }}
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* ── Path Legend (bottom-left) ── */}
         <div
@@ -785,7 +961,7 @@ export default function PathMapCanvas({
               style={{
                 width: "14px",
                 height: "4px",
-                backgroundColor: "#94a3b8",
+                backgroundColor: "rgba(239, 68, 68, 0.3)",
                 borderRadius: "2px",
                 display: "inline-block",
               }}
@@ -803,10 +979,7 @@ export default function PathMapCanvas({
               }}
             />
             <span>
-              To{" "}
-              {destination?.category === "Cabinet"
-                ? `Key cabinet (${destination.cabinetColo === "colo2" ? "Colo 2" : destination.cabinetColo === "colo3" ? "Colo 3" : "Colo 1"})`
-                : destination?.name || destinationReader.name || "Destination"}
+              To {destination?.name || destinationReader?.name || "Destination"}
             </span>
           </div>
         </div>

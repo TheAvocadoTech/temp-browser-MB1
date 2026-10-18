@@ -6,7 +6,7 @@ import DestinationModal from "./components/DestinationModal";
 import SelectDestinationModal from "./components/SelectDestinationModal";
 import SessionExpiredScreen from "./components/SessionExpiredScreen";
 import { useReaderLocations } from "./hooks/useReaderLocations";
-import { Layers, Box, Navigation, Key } from "lucide-react";
+import { Layers, Box, Key, Compass } from "lucide-react";
 
 export default function App() {
   // Parse URL Query parameters: ?token=VTK_... or ?tagCode=V002
@@ -30,6 +30,8 @@ export default function App() {
     selectKeyCabinetColo,
     allMergedReaders,
     deleteReaderLocation,
+    updateDestinationCoordinates,
+    addDestination,
     resetToDefaults,
     getRouteForDestination,
   } = useReaderLocations();
@@ -42,7 +44,7 @@ export default function App() {
   // Modal dialog states
   const [isSelectDestOpen, setIsSelectDestOpen] = useState(false);
   const [isPickMode, setIsPickMode] = useState(false);
-  const [, setPickedCoords] = useState(null);
+  const [pickedCoords, setPickedCoords] = useState(null);
 
   // Session & Arrival Overlay States
   const [showDestinationModal, setShowDestinationModal] = useState(false);
@@ -58,6 +60,12 @@ export default function App() {
   const handlePickCoords = (coords) => {
     setPickedCoords(coords);
     setIsPickMode(false);
+    setIsSelectDestOpen(true);
+  };
+
+  const handleStartPickMode = () => {
+    setIsSelectDestOpen(false);
+    setIsPickMode(true);
   };
 
   const fetchLivePath = useCallback(async () => {
@@ -159,89 +167,7 @@ export default function App() {
                   gap: "6px",
                 }}
               >
-                {/* Destination Selector Pill */}
-                <button
-                  onClick={() => setIsSelectDestOpen(true)}
-                  title="Choose destination to move to (Key cabinet, Washroom, NOC, Loading area)"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    backgroundColor: "rgba(255, 255, 255, 0.95)",
-                    backdropFilter: "blur(8px)",
-                    borderRadius: "12px",
-                    padding: "7px 12px",
-                    border: "1px solid #cbd5e1",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                    fontSize: "12px",
-                    fontWeight: "700",
-                    color: "#0f172a",
-                    cursor: "pointer",
-                    transition: "all 0.18s ease",
-                  }}
-                  onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "#f0f9ff")}
-                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.95)")}
-                >
-                  <Navigation size={14} color="#0284c7" />
-                  <span>
-                    To: {activeDestination?.name || "Destination"}
-                    {activeDestination?.category === "Cabinet"
-                      ? ` (${selectedKeyCabinetColo === "colo1" ? "Colo 1" : selectedKeyCabinetColo === "colo2" ? "Colo 2" : "Colo 3"})`
-                      : ""}
-                  </span>
-                </button>
 
-                {/* Key Cabinet Colo Dropdown (Colo 1, Colo 2, Colo 3) */}
-                <div
-                  title="Select Key Cabinet Colo room (Colo 1, Colo 2, Colo 3)"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    backgroundColor: "rgba(255, 255, 255, 0.95)",
-                    backdropFilter: "blur(8px)",
-                    borderRadius: "12px",
-                    padding: "5px 8px",
-                    border:
-                      activeDestination?.category === "Cabinet"
-                        ? "1.5px solid #f59e0b"
-                        : "1px solid #cbd5e1",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-                  }}
-                >
-                  <Key size={13} color="#f59e0b" />
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: "700",
-                      color: "#475569",
-                    }}
-                  >
-                    Cabinet:
-                  </span>
-                  <select
-                    id="header-cabinet-dropdown"
-                    value={selectedKeyCabinetColo}
-                    onChange={(e) => {
-                      selectKeyCabinetColo(e.target.value);
-                      setHasClosedMap(false);
-                    }}
-                    style={{
-                      border: "none",
-                      backgroundColor: "transparent",
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      color: "#0f172a",
-                      cursor: "pointer",
-                      outline: "none",
-                      padding: "2px 0",
-                    }}
-                  >
-                    <option value="colo1">Colo 1</option>
-                    <option value="colo2">Colo 2</option>
-                    <option value="colo3">Colo 3</option>
-                  </select>
-                </div>
 
 
                 {/* 2D / 3D Mode Toggle */}
@@ -328,17 +254,71 @@ export default function App() {
                 )}
               </div>
 
-              {/* Modal: Select Destination Location (with Delete unwanted locations) */}
+              {/* ── Bottom Right Common Areas Floating Button ── */}
+              <button
+                id="common-areas-btn"
+                onClick={() => setIsSelectDestOpen(true)}
+                title="Select Common Areas (Key cabinet, Washroom, NOC, Loading area)"
+                style={{
+                  position: "absolute",
+                  bottom: "20px",
+                  right: "16px",
+                  zIndex: 35,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  backgroundColor: "#0284c7",
+                  color: "#ffffff",
+                  borderRadius: "14px",
+                  padding: "10px 16px",
+                  border: "none",
+                  boxShadow:
+                    "0 6px 18px rgba(2, 132, 199, 0.4), 0 2px 6px rgba(0, 0, 0, 0.1)",
+                  fontSize: "13px",
+                  fontWeight: "700",
+                  letterSpacing: "0.01em",
+                  cursor: "pointer",
+                  transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                  fontFamily: "'Inter', system-ui, sans-serif",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.backgroundColor = "#0369a1";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                  e.currentTarget.style.boxShadow =
+                    "0 8px 22px rgba(2, 132, 199, 0.5), 0 3px 8px rgba(0, 0, 0, 0.15)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.backgroundColor = "#0284c7";
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow =
+                    "0 6px 18px rgba(2, 132, 199, 0.4), 0 2px 6px rgba(0, 0, 0, 0.1)";
+                }}
+              >
+                <Compass size={18} color="#ffffff" />
+                <span>Common Areas</span>
+                {activeDestination?.name && (
+                  <span
+                    style={{
+                      backgroundColor: "rgba(255, 255, 255, 0.22)",
+                      padding: "2px 8px",
+                      borderRadius: "8px",
+                      fontSize: "11px",
+                      fontWeight: "600",
+                      marginLeft: "2px",
+                    }}
+                  >
+                    {activeDestination.name}
+                  </span>
+                )}
+              </button>
+
+              {/* Modal: Select Destination Location */}
               <SelectDestinationModal
                 isOpen={isSelectDestOpen}
                 onClose={() => setIsSelectDestOpen(false)}
                 destinations={destinations}
                 activeDestination={activeDestination}
-                selectedKeyCabinetColo={selectedKeyCabinetColo}
-                onSelectCabinetColo={selectKeyCabinetColo}
                 onSelectDestination={handleSelectDestination}
-                onDeleteDestination={deleteReaderLocation}
-                onResetDefaults={resetToDefaults}
               />
 
               {/* Destination Arrival Reached Modal Overlay */}

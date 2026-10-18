@@ -1,75 +1,53 @@
 // src/config/defaultDestinations.js
-// Predefined destination locations: Key cabinet (Colo 1, 2, 3), Washroom, NOC, Loading area
+// Predefined destination locations: Final destination (Colo 1, Colo 2, Colo 3), Key cabinet, Washroom, NOC, Loading area only
 
-export const KEY_CABINET_OPTIONS = [
+export const DEFAULT_DESTINATIONS = [
   {
-    colo: "colo1",
-    label: "Colo 1",
-    subLabel: "Row 5-6 End Point",
-    id: "dest-key-cabinet-colo1",
-    name: "Key cabinet",
-    cabinetColo: "colo1",
-    fullName: "Key Cabinet (Colo 1 - Row 5-6)",
-    description: "Colo 1 Cabinet Location (Row 5-6 End Point)",
-    category: "Cabinet",
-    icon: "key",
+    id: "dest-colo-1",
+    name: "Final destination (Colo 1)",
+    fullName: "Final Destination (Colo 1)",
+    description: "Colo 1 Server Hall (Row 5-6 End Point)",
+    category: "Final Destination",
+    icon: "server",
     coords: { x: 70.3, y: 44.4 },
     readerId: 43,
     sequence: 15,
     isDefault: true,
   },
   {
-    colo: "colo2",
-    label: "Colo 2",
-    subLabel: "Colo-2 Server Hall",
-    id: "dest-key-cabinet-colo2",
-    name: "Key cabinet",
-    cabinetColo: "colo2",
-    fullName: "Key Cabinet (Colo 2)",
-    description: "Colo 2 Cabinet Location (Server Hall)",
-    category: "Cabinet",
-    icon: "key",
+    id: "dest-colo-2",
+    name: "Final destination (Colo 2)",
+    fullName: "Final Destination (Colo 2)",
+    description: "Colo 2 Server Hall",
+    category: "Final Destination",
+    icon: "server",
     coords: { x: 49.5, y: 33.5 },
     readerId: 46,
     sequence: 12,
     isDefault: true,
   },
   {
-    colo: "colo3",
-    label: "Colo 3",
-    subLabel: "Colo-3 Server Hall",
-    id: "dest-key-cabinet-colo3",
-    name: "Key cabinet",
-    cabinetColo: "colo3",
-    fullName: "Key Cabinet (Colo 3)",
-    description: "Colo 3 Cabinet Location (Server Hall)",
-    category: "Cabinet",
-    icon: "key",
+    id: "dest-colo-3",
+    name: "Final destination (Colo 3)",
+    fullName: "Final Destination (Colo 3)",
+    description: "Colo 3 Server Hall",
+    category: "Final Destination",
+    icon: "server",
     coords: { x: 10.5, y: 35.0 },
     readerId: 29,
     sequence: 6,
     isDefault: true,
   },
-];
-
-export const getKeyCabinetOption = (coloKey = "colo1") => {
-  return (
-    KEY_CABINET_OPTIONS.find((c) => c.colo === coloKey) || KEY_CABINET_OPTIONS[0]
-  );
-};
-
-export const DEFAULT_DESTINATIONS = [
   {
     id: "dest-key-cabinet",
     name: "Key cabinet",
-    fullName: "Key Cabinet (Colo 1 - Row 5-6)",
-    description: "Colo 1 Cabinet Location (Row 5-6 End Point)",
+    fullName: "Key Cabinet",
+    description: "Security Key Cabinet (Between Above Colo-3 Door & Bom 12 Entry Door)",
     category: "Cabinet",
     icon: "key",
-    coords: { x: 70.3, y: 44.4 },
-    readerId: 43,
-    sequence: 15,
-    cabinetColo: "colo1",
+    coords: { x: 22.5, y: 34.8 },
+    readerId: 9010,
+    sequence: 3.5,
     isDefault: true,
   },
   {
@@ -91,9 +69,9 @@ export const DEFAULT_DESTINATIONS = [
     description: "Local Operations Center & Server Control Room",
     category: "Operations",
     icon: "shield",
-    coords: { x: 26.8, y: 44.9 },
+    coords: { x: 26.8, y: 41.5 },
     readerId: 33,
-    sequence: 6,
+    sequence: 7,
     isDefault: true,
   },
   {
@@ -109,3 +87,10 @@ export const DEFAULT_DESTINATIONS = [
     isDefault: true,
   },
 ];
+
+// Backwards-compatibility stubs
+export const KEY_CABINET_OPTIONS = [
+  DEFAULT_DESTINATIONS[3],
+];
+
+export const getKeyCabinetOption = () => DEFAULT_DESTINATIONS[3];

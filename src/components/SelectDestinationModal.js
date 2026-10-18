@@ -9,8 +9,6 @@ import {
   Shield,
   MapPin,
   CheckCircle,
-  Trash2,
-  RotateCcw,
   X,
   Search,
   Compass,
@@ -19,13 +17,9 @@ import {
 export default function SelectDestinationModal({
   isOpen,
   onClose,
-  destinations,
+  destinations = [],
   activeDestination,
-  selectedKeyCabinetColo = "colo1",
-  onSelectCabinetColo,
   onSelectDestination,
-  onDeleteDestination,
-  onResetDefaults,
 }) {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -69,35 +63,30 @@ export default function SelectDestinationModal({
   const filteredDestinations = destinations.filter(
     (d) =>
       d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (d.description && d.description.toLowerCase().includes(searchTerm.toLowerCase()))
+      (d.description &&
+        d.description.toLowerCase().includes(searchTerm.toLowerCase())),
   );
 
   return (
     <div
       style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
+        position: "fixed",
+        inset: 0,
         backgroundColor: "rgba(15, 23, 42, 0.72)",
-        backdropFilter: "blur(10px)",
-        WebkitBackdropFilter: "blur(10px)",
+        backdropFilter: "blur(6px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 1000,
+        zIndex: 50,
         padding: "16px",
-        boxSizing: "border-box",
-        animation: "fadeIn 0.25s ease-out forwards",
       }}
       onClick={onClose}
     >
       <div
         style={{
           width: "100%",
-          maxWidth: "420px",
-          maxHeight: "92%",
+          maxWidth: "440px",
+          maxHeight: "90%",
           backgroundColor: "#ffffff",
           borderRadius: "24px",
           display: "flex",
@@ -113,7 +102,7 @@ export default function SelectDestinationModal({
         {/* Modal Header */}
         <div
           style={{
-            padding: "20px 22px 14px 22px",
+            padding: "18px 20px 14px 20px",
             borderBottom: "1px solid #f1f5f9",
             display: "flex",
             alignItems: "center",
@@ -144,13 +133,14 @@ export default function SelectDestinationModal({
                   letterSpacing: "-0.01em",
                 }}
               >
-                Where to Move?
+                Common Areas
               </h3>
-              <span style={{ fontSize: "12px", color: "#64748b" }}>
-                Select a destination to generate route
+              <span style={{ fontSize: "11.5px", color: "#64748b" }}>
+                Select your destination
               </span>
             </div>
           </div>
+
           <button
             onClick={onClose}
             style={{
@@ -172,7 +162,7 @@ export default function SelectDestinationModal({
         </div>
 
         {/* Search Bar */}
-        <div style={{ padding: "12px 20px 8px 20px" }}>
+        <div style={{ padding: "10px 20px 8px 20px" }}>
           <div
             style={{
               position: "relative",
@@ -187,7 +177,7 @@ export default function SelectDestinationModal({
             <Search size={16} color="#94a3b8" style={{ marginRight: "8px" }} />
             <input
               type="text"
-              placeholder="Search Key cabinet, Washroom, NOC, Loading area..."
+              placeholder="Search destination..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -230,7 +220,9 @@ export default function SelectDestinationModal({
                   padding: "14px 16px",
                   borderRadius: "16px",
                   backgroundColor: isSelected ? "#f0f9ff" : "#ffffff",
-                  border: isSelected ? "2px solid #0284c7" : "1px solid #e2e8f0",
+                  border: isSelected
+                    ? "2px solid #0284c7"
+                    : "1px solid #e2e8f0",
                   cursor: "pointer",
                   transition: "all 0.18s ease",
                   boxShadow: isSelected
@@ -250,7 +242,16 @@ export default function SelectDestinationModal({
                   }
                 }}
               >
-                <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", flex: 1, minWidth: 0 }}>
+                {/* Left side: Icon & Info */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "14px",
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                >
                   <div
                     style={{
                       width: "44px",
@@ -261,13 +262,18 @@ export default function SelectDestinationModal({
                       alignItems: "center",
                       justifyContent: "center",
                       flexShrink: 0,
-                      marginTop: "2px",
                     }}
                   >
                     {getDestinationIcon(dest.icon)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
                       <span
                         style={{
                           fontSize: "15px",
@@ -301,115 +307,13 @@ export default function SelectDestinationModal({
                         marginTop: "2px",
                       }}
                     >
-                      {dest.description || `Coords: (${dest.coords.x}%, ${dest.coords.y}%)`}
+                      {dest.description || dest.fullName}
                     </span>
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        fontWeight: "600",
-                        color: "#94a3b8",
-                        display: "block",
-                        marginTop: "2px",
-                        fontFamily: "monospace",
-                      }}
-                    >
-                      X: {dest.coords.x}% · Y: {dest.coords.y}%
-                    </span>
-
-                    {/* Key Cabinet Colo Dropdown (Colo 1, 2, 3) */}
-                    {dest.category === "Cabinet" && (
-                      <div
-                        style={{
-                          marginTop: "8px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          flexWrap: "wrap",
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span
-                            style={{
-                              fontSize: "11px",
-                              fontWeight: "700",
-                              color: "#b45309",
-                            }}
-                          >
-                            Colo:
-                          </span>
-                          <select
-                            id="modal-keycabinet-colo-dropdown"
-                            value={selectedKeyCabinetColo}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              if (onSelectCabinetColo) {
-                                onSelectCabinetColo(e.target.value);
-                              }
-                            }}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "8px",
-                              border: "1.5px solid #f59e0b",
-                              backgroundColor: "#fffbeb",
-                              fontSize: "12px",
-                              fontWeight: "700",
-                              color: "#92400e",
-                              cursor: "pointer",
-                              outline: "none",
-                            }}
-                          >
-                            <option value="colo1">Colo 1 (Row 5-6)</option>
-                            <option value="colo2">Colo 2 (Server Hall)</option>
-                            <option value="colo3">Colo 3 (Server Hall)</option>
-                          </select>
-                        </div>
-
-                        {/* Quick Colo selection pills */}
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                          {[
-                            { key: "colo1", label: "Colo 1" },
-                            { key: "colo2", label: "Colo 2" },
-                            { key: "colo3", label: "Colo 3" },
-                          ].map((c) => {
-                            const isColoActive = selectedKeyCabinetColo === c.key;
-                            return (
-                              <button
-                                key={c.key}
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onSelectCabinetColo) {
-                                    onSelectCabinetColo(c.key);
-                                  }
-                                }}
-                                style={{
-                                  border: isColoActive
-                                    ? "1.5px solid #f59e0b"
-                                    : "1px solid #cbd5e1",
-                                  backgroundColor: isColoActive
-                                    ? "#fef3c7"
-                                    : "#ffffff",
-                                  color: isColoActive ? "#92400e" : "#64748b",
-                                  borderRadius: "6px",
-                                  padding: "2px 7px",
-                                  fontSize: "10.5px",
-                                  fontWeight: isColoActive ? "800" : "600",
-                                  cursor: "pointer",
-                                  transition: "all 0.15s ease",
-                                }}
-                              >
-                                {c.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                {/* Right side: Active / Select Badge */}
+                <div style={{ flexShrink: 0, marginLeft: "10px" }}>
                   {isSelected ? (
                     <div
                       style={{
@@ -445,149 +349,10 @@ export default function SelectDestinationModal({
                       <span>Select</span>
                     </div>
                   )}
-
-                  {onDeleteDestination && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (
-                          window.confirm(
-                            `Are you sure you want to delete "${dest.name}"?`
-                          )
-                        ) {
-                          onDeleteDestination(dest.id);
-                        }
-                      }}
-                      title={`Delete ${dest.name}`}
-                      style={{
-                        width: "32px",
-                        height: "32px",
-                        borderRadius: "10px",
-                        border: "1px solid #fee2e2",
-                        backgroundColor: "#fff1f2",
-                        color: "#e11d48",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                      }}
-                      onMouseOver={(e) => {
-                        e.currentTarget.style.backgroundColor = "#ffe4e6";
-                        e.currentTarget.style.borderColor = "#fca5a5";
-                        e.currentTarget.style.color = "#be123c";
-                      }}
-                      onMouseOut={(e) => {
-                        e.currentTarget.style.backgroundColor = "#fff1f2";
-                        e.currentTarget.style.borderColor = "#fee2e2";
-                        e.currentTarget.style.color = "#e11d48";
-                      }}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
                 </div>
               </div>
             );
           })}
-
-          {filteredDestinations.length === 0 && (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "36px 16px",
-                color: "#64748b",
-                fontSize: "13px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "12px",
-              }}
-            >
-              {searchTerm ? (
-                <span>No location found matching "{searchTerm}"</span>
-              ) : (
-                <>
-                  <span>No locations available.</span>
-                  {onResetDefaults && (
-                    <button
-                      type="button"
-                      onClick={onResetDefaults}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        padding: "8px 16px",
-                        borderRadius: "10px",
-                        backgroundColor: "#f1f5f9",
-                        border: "1px solid #cbd5e1",
-                        color: "#334155",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <RotateCcw size={14} />
-                      <span>Restore Default Locations</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer: Info & Reset */}
-        <div
-          style={{
-            padding: "12px 20px",
-            borderTop: "1px solid #f1f5f9",
-            backgroundColor: "#f8fafc",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "600" }}>
-            {destinations.length} location{destinations.length === 1 ? "" : "s"} available
-          </span>
-          {onResetDefaults && (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm("Restore default predefined locations?")) {
-                  onResetDefaults();
-                }
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "5px",
-                padding: "6px 11px",
-                borderRadius: "8px",
-                backgroundColor: "#ffffff",
-                color: "#64748b",
-                border: "1px solid #cbd5e1",
-                fontSize: "11px",
-                fontWeight: "600",
-                cursor: "pointer",
-                transition: "all 0.15s ease",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.backgroundColor = "#f1f5f9";
-                e.currentTarget.style.color = "#0f172a";
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.backgroundColor = "#ffffff";
-                e.currentTarget.style.color = "#64748b";
-              }}
-              title="Reset locations to factory defaults"
-            >
-              <RotateCcw size={12} />
-              <span>Reset Defaults</span>
-            </button>
-          )}
         </div>
       </div>
     </div>

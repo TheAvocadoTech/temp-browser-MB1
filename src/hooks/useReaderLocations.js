@@ -10,6 +10,7 @@ const STORAGE_CUSTOM_READERS_KEY = "avocado_custom_readers_v1";
 const STORAGE_DELETED_DESTINATIONS_KEY = "avocado_deleted_destinations_v1";
 const STORAGE_ACTIVE_DEST_KEY = "avocado_active_destination_v1";
 const STORAGE_CABINET_COLO_KEY = "avocado_cabinet_colo_v1";
+const STORAGE_DEST_OVERRIDES_KEY = "avocado_dest_overrides_v1";
 
 export function useReaderLocations() {
   // Selected Key Cabinet Colo: "colo1", "colo2", or "colo3"
@@ -45,21 +46,40 @@ export function useReaderLocations() {
     }
   });
 
+  // Track coordinate and metadata overrides for any destination
+  const [destOverrides, setDestOverrides] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_DEST_OVERRIDES_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.warn("Failed to load destination overrides from localStorage", e);
+      return {};
+    }
+  });
+
   // Active destination (defaults to Key cabinet or previously saved)
   const [activeDestinationId, setActiveDestinationId] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_ACTIVE_DEST_KEY);
       if (
         saved &&
-        (saved === "dest-key-cabinet" ||
-          saved === "dest-key-cabinet-colo1" ||
-          saved === "dest-key-cabinet-colo2" ||
-          saved === "dest-key-cabinet-colo3" ||
+        (saved === "dest-colo-1" ||
+          saved === "dest-colo-2" ||
+          saved === "dest-colo-3" ||
+          saved === "dest-key-cabinet" ||
           saved === "dest-washroom" ||
           saved === "dest-noc" ||
           saved === "dest-loading-area")
       ) {
         return saved;
+      }
+      if (
+        saved &&
+        (saved === "dest-key-cabinet-colo1" ||
+          saved === "dest-key-cabinet-colo2" ||
+          saved === "dest-key-cabinet-colo3")
+      ) {
+        return "dest-key-cabinet";
       }
     } catch (e) {}
     return "dest-key-cabinet";
@@ -98,6 +118,18 @@ export function useReaderLocations() {
     }
   }, [deletedLocationIds]);
 
+  // Save destination overrides whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        STORAGE_DEST_OVERRIDES_KEY,
+        JSON.stringify(destOverrides),
+      );
+    } catch (e) {
+      console.warn("Failed to save destination overrides to localStorage", e);
+    }
+  }, [destOverrides]);
+
   // Save active destination selection
   useEffect(() => {
     try {
@@ -115,39 +147,27 @@ export function useReaderLocations() {
     setActiveDestinationId("dest-key-cabinet");
   }, []);
 
-  // Merge default destinations with any custom added destinations, filtering out deleted ones.
-  // The Key cabinet destination item reflects the chosen Colo (Colo 1, 2, or 3).
+  // The destination list: Final destination (Colo 1, Colo 2, Colo 3), Key cabinet, Washroom, NOC, Loading area ONLY
   const destinations = useMemo(() => {
-    const activeCabinet = getKeyCabinetOption(selectedKeyCabinetColo);
-    const list = [
-      {
-        ...activeCabinet,
-        id: "dest-key-cabinet",
-        name: "Key cabinet",
-        fullName: activeCabinet.fullName,
-        description: activeCabinet.description,
-        coords: activeCabinet.coords,
-        readerId: activeCabinet.readerId,
-        sequence: activeCabinet.sequence,
-        cabinetColo: selectedKeyCabinetColo,
-      },
-      ...DEFAULT_DESTINATIONS.slice(1),
-    ];
-    customLocations.forEach((c) => {
-      // Avoid duplicate IDs and exclude legacy unneeded destinations
+    return DEFAULT_DESTINATIONS.map((d) => {
+      const override = destOverrides[d.id];
+      // Discard stale Key Cabinet overrides from older versions (e.g. y around 26.5 or x around 70.3)
       if (
-        !list.some((d) => d.id === c.id) &&
-        !c.id?.includes("colo") &&
-        !c.name?.toLowerCase().includes("colo")
+        d.id === "dest-key-cabinet" &&
+        override?.coords &&
+        (Math.abs(override.coords.y - 26.5) < 1.0 || Math.abs(override.coords.x - 70.3) < 2.0)
       ) {
-        list.push({
-          ...c,
-          isDefault: false,
-        });
+        return d;
       }
+      if (override && override.coords) {
+        return {
+          ...d,
+          coords: override.coords,
+        };
+      }
+      return d;
     });
-    return list.filter((loc) => !deletedLocationIds.includes(loc.id));
-  }, [selectedKeyCabinetColo, customLocations, deletedLocationIds]);
+  }, [destOverrides]);
 
   // Active destination object
   const activeDestination = useMemo(() => {
@@ -158,39 +178,10 @@ export function useReaderLocations() {
     );
   }, [destinations, activeDestinationId]);
 
-  // Combined readers list: base readers from rfidReaders.json + any custom readers
+  // Combined readers list: base readers from rfidReaders.json only
   const allMergedReaders = useMemo(() => {
-    const list = baseReaders.map((r) => ({ ...r, isCustom: false }));
-
-    customLocations.forEach((loc) => {
-      // Check if location already maps to an existing reader ID
-      const existingIdx = list.findIndex(
-        (r) => r.id === loc.id || (loc.readerId && r.id === loc.readerId),
-      );
-
-      if (existingIdx !== -1) {
-        list[existingIdx] = {
-          ...list[existingIdx],
-          location: loc.name,
-          coords: loc.coords,
-          sequence: loc.sequence ?? list[existingIdx].sequence,
-        };
-      } else {
-        list.push({
-          id: loc.id,
-          sequence: loc.sequence ?? 99,
-          location: loc.name,
-          coords: loc.coords,
-          isCustom: true,
-          category: loc.category,
-        });
-      }
-    });
-
-    return list.sort(
-      (a, b) => (Number(a.sequence) || 0) - (Number(b.sequence) || 0),
-    );
-  }, [customLocations]);
+    return baseReaders;
+  }, [baseReaders]);
 
   // Add a new hardcoded reader location
   const addReaderLocation = useCallback(
@@ -256,10 +247,87 @@ export function useReaderLocations() {
     [activeDestinationId, destinations],
   );
 
-  // Reset all custom locations and un-delete locations back to factory defaults
+  // Update coordinates (and optionally name / sequence) of ANY destination
+  const updateDestinationCoordinates = useCallback(
+    (id, { x, y, name, sequence }) => {
+      const numX = Number(
+        Math.min(100, Math.max(0, parseFloat(x) || 0)).toFixed(1),
+      );
+      const numY = Number(
+        Math.min(100, Math.max(0, parseFloat(y) || 0)).toFixed(1),
+      );
+
+      // 1. Update in destOverrides (works for default destinations and custom alike)
+      setDestOverrides((prev) => ({
+        ...prev,
+        [id]: {
+          ...(prev[id] || {}),
+          coords: { x: numX, y: numY },
+          ...(name ? { name: name.trim() } : {}),
+          ...(sequence !== undefined && sequence !== ""
+            ? { sequence: Number(sequence) }
+            : {}),
+        },
+      }));
+
+      // 2. Also update in customLocations if present
+      setCustomLocations((prev) =>
+        prev.map((loc) => {
+          if (loc.id !== id) return loc;
+          return {
+            ...loc,
+            name: name ? name.trim() : loc.name,
+            fullName: name ? name.trim() : loc.fullName,
+            coords: { x: numX, y: numY },
+            sequence:
+              sequence !== undefined && sequence !== ""
+                ? Number(sequence)
+                : loc.sequence,
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  // Add a new destination location
+  const addDestination = useCallback(
+    ({ name, x, y, category = "Custom", icon = "map-pin", sequence = 16 }) => {
+      const numX = Number(
+        Math.min(100, Math.max(0, parseFloat(x) || 0)).toFixed(1),
+      );
+      const numY = Number(
+        Math.min(100, Math.max(0, parseFloat(y) || 0)).toFixed(1),
+      );
+      const cleanName =
+        (name && name.trim()) || `Location (${numX}%, ${numY}%)`;
+      const newId = `dest-custom-${Date.now()}`;
+
+      const newDest = {
+        id: newId,
+        name: cleanName,
+        fullName: cleanName,
+        description: `${category} destination (${cleanName}) at (${numX}%, ${numY}%)`,
+        category: category || "Custom",
+        icon: icon || "map-pin",
+        coords: { x: numX, y: numY },
+        sequence: Number(sequence) || 16,
+        isDefault: false,
+        createdAt: new Date().toISOString(),
+      };
+
+      setCustomLocations((prev) => [...prev, newDest]);
+      setActiveDestinationId(newId);
+      return newDest;
+    },
+    [],
+  );
+
+  // Reset all custom locations, overrides, and un-delete back to factory defaults
   const resetToDefaults = useCallback(() => {
     setCustomLocations([]);
     setDeletedLocationIds([]);
+    setDestOverrides({});
     setActiveDestinationId("dest-key-cabinet");
     setSelectedKeyCabinetColo("colo1");
     try {
@@ -267,6 +335,7 @@ export function useReaderLocations() {
       localStorage.removeItem(STORAGE_DELETED_DESTINATIONS_KEY);
       localStorage.removeItem(STORAGE_ACTIVE_DEST_KEY);
       localStorage.removeItem(STORAGE_CABINET_COLO_KEY);
+      localStorage.removeItem(STORAGE_DEST_OVERRIDES_KEY);
     } catch (e) {}
   }, []);
 
@@ -294,6 +363,43 @@ export function useReaderLocations() {
       if (!target) return baseRoute;
 
       const targetId = target.id || "";
+
+      const isKeyCabinet =
+        targetId === "dest-key-cabinet" ||
+        /key\s*cabin[ei]t/i.test(target.name || "") ||
+        /key\s*cabin[ei]t/i.test(target.fullName || "");
+
+      // ── 0. KEY CABINET: Reception -> Man Trap (38) -> Above Colo-3 Door (29) -> Key Cabinet (4) ──
+      if (isKeyCabinet) {
+        return [
+          {
+            id: 32,
+            sequence: 1,
+            location: "Reception",
+            coords: { x: 19.9, y: 40.9 },
+          },
+          {
+            id: 38,
+            sequence: 2,
+            location: "Man Trap",
+            coords: { x: 20.9, y: 35.0 },
+          },
+          {
+            id: 29,
+            sequence: 3,
+            location: "Above Colo-3 Door",
+            coords: { x: 22.3, y: 30.3 },
+          },
+          {
+            id: target.readerId || target.id || 9010,
+            sequence: 4,
+            location: target.fullName || target.name || "Key cabinet",
+            name: target.name || "Key cabinet",
+            coords: target.coords || { x: 22.5, y: 34.8 },
+            isDestination: true,
+          },
+        ];
+      }
 
       // ── 1. WASHROOM: Reception to Corridor Turn (same as Colo-1) -> Washroom Path -> Washroom ──
       if (
@@ -349,19 +455,75 @@ export function useReaderLocations() {
         ];
       }
 
-      // Helper to identify Colo-3 and Colo-2 destinations (case-insensitive, handling "colo -3", "colo 3", "colo-3", etc.)
-      const isColo3 = (str) => /colo\s*[-_]?\s*3/i.test(str || "");
-      const isColo2 = (str) => /colo\s*[-_]?\s*2/i.test(str || "");
+      // Helper to identify Colo-1, Colo-2, Colo-3 destinations (case-insensitive, handling "colo -3", "colo 3", "colo-3", "colo three", etc.)
+      const isColo3 = (str) => /colo\s*[-_]?\s*(3|three)/i.test(str || "");
+      const isColo2 = (str) => /colo\s*[-_]?\s*(2|two)/i.test(str || "");
+      const isColo1 = (str) => /colo\s*[-_]?\s*(1|one)/i.test(str || "");
 
-      // ── 2. COLO-3 (Cabinet / Path): Reception -> Man Trap (38) -> Above Colo-3 Door (29) -> Colo-3 North Corridor -> Server Aisle -> Colo-3 Key Cabinet ──
+      // ── 2. COLO-3 (Cabinet / Path): Reception -> Man Trap (38) -> Above Colo-3 Door (29) -> colo 3 path 1 -> colo 3 path -> colo 3 ──
       if (
-        target.cabinetColo === "colo3" ||
-        targetId === "dest-colo-3" ||
-        targetId === "dest-key-cabinet-colo3" ||
-        isColo3(targetId) ||
-        (isColo3(target.name) && !target.name?.toLowerCase().includes("washroom"))
+        ((targetId === "dest-colo-3" ||
+          target.cabinetColo === "colo3" ||
+          targetId === "dest-key-cabinet-colo3" ||
+          isColo3(targetId) ||
+          isColo3(target.name)) &&
+          !isKeyCabinet &&
+          !target.name?.toLowerCase().includes("washroom"))
       ) {
-        return [
+        // Look up any custom or user-defined Colo 3 points (by name or location)
+        const customColo3Path1 =
+          destinations.find(
+            (d) => isColo3(d.name) && /path\s*1|p1/i.test(d.name),
+          ) ||
+          allMergedReaders.find(
+            (r) => isColo3(r.location) && /path\s*1|p1/i.test(r.location),
+          );
+
+        const customColo3Path =
+          destinations.find(
+            (d) =>
+              isColo3(d.name) &&
+              /path/i.test(d.name) &&
+              !/path\s*1|p1/i.test(d.name),
+          ) ||
+          allMergedReaders.find(
+            (r) =>
+              isColo3(r.location) &&
+              /path/i.test(r.location) &&
+              !/path\s*1|p1/i.test(r.location),
+          );
+
+        const customColo3Final =
+          destinations.find(
+            (d) =>
+              isColo3(d.name) &&
+              (/location|cabinet|hall|rack|end/i.test(d.name) ||
+                !/path/i.test(d.name)),
+          ) ||
+          allMergedReaders.find(
+            (r) =>
+              isColo3(r.location) &&
+              (/location|cabinet|hall|rack|end/i.test(r.location) ||
+                !/path/i.test(r.location)),
+          );
+
+        // Path point coordinates (use user custom coordinates if added/edited, else optimal hallway defaults)
+        const path1Coords =
+          customColo3Path1?.coords || { x: 21.0, y: 26.5 };
+        const pathCoords =
+          customColo3Path?.coords || { x: 10.5, y: 26.5 };
+        const finalCoords =
+          target.coords ||
+          customColo3Final?.coords || { x: 10.5, y: 35.0 };
+
+        const isTargetColo3Path1 =
+          /path\s*1|p1/i.test(target.name || "") ||
+          /path\s*1|p1/i.test(target.id || "");
+        const isTargetColo3Path =
+          (/path/i.test(target.name || "") || /path/i.test(target.id || "")) &&
+          !isTargetColo3Path1;
+
+        const baseStart = [
           {
             id: 32,
             sequence: 1,
@@ -378,28 +540,74 @@ export function useReaderLocations() {
             id: 29,
             sequence: 3,
             location: "Above Colo-3 Door",
-            coords: { x: 21.5, y: 30.3 },
+            coords: { x: 22.3, y: 30.3 },
           },
+        ];
+
+        // If user specifically targeted "colo 3 path 1"
+        if (isTargetColo3Path1) {
+          return [
+            ...baseStart,
+            {
+              id: customColo3Path1?.id || 9002,
+              sequence: 4,
+              location: customColo3Path1?.name || "colo 3 path 1",
+              coords: target.coords || path1Coords,
+              isDestination: true,
+            },
+          ];
+        }
+
+        // If user specifically targeted "colo 3 path"
+        if (isTargetColo3Path) {
+          return [
+            ...baseStart,
+            {
+              id: customColo3Path1?.id || 9002,
+              sequence: 4,
+              location: customColo3Path1?.name || "colo 3 path 1",
+              coords: path1Coords,
+              isWaypoint: true,
+            },
+            {
+              id: customColo3Path?.id || 9001,
+              sequence: 5,
+              location: customColo3Path?.name || "colo 3 path",
+              coords: target.coords || pathCoords,
+              isDestination: true,
+            },
+          ];
+        }
+
+        // Final destination: colo 3 / colo three location
+        const destinationLabel =
+          target.fullName ||
+          target.name ||
+          customColo3Final?.name ||
+          "colo 3";
+
+        return [
+          ...baseStart,
           {
-            id: 9001,
+            id: customColo3Path1?.id || 9002,
             sequence: 4,
-            location: "Colo-3 Entry Corridor",
-            coords: { x: 21.0, y: 26.5 },
+            location: customColo3Path1?.name || "colo 3 path 1",
+            coords: path1Coords,
             isWaypoint: true,
           },
           {
-            id: 9002,
+            id: customColo3Path?.id || 9001,
             sequence: 5,
-            location: "Colo-3 Server Aisle Entry",
-            coords: { x: 10.5, y: 26.5 },
+            location: customColo3Path?.name || "colo 3 path",
+            coords: pathCoords,
             isWaypoint: true,
           },
           {
             id: target.readerId || target.id || 9003,
             sequence: 6,
-            location: target.fullName || "Colo-3 Key Cabinet",
-            name: target.name || "Key cabinet",
-            coords: target.coords || { x: 10.5, y: 35.0 },
+            location: destinationLabel,
+            name: destinationLabel,
+            coords: finalCoords,
             isDestination: true,
           },
         ];
@@ -449,7 +657,17 @@ export function useReaderLocations() {
             id: 33,
             sequence: 6,
             location: "NOC ROOM Door",
-            coords: target.coords || { x: 26.8, y: 44.9 },
+            coords: { x: 26.8, y: 44.9 },
+          },
+          {
+            id: target.readerId || target.id || 9033,
+            sequence: 7,
+            location: target.fullName || target.name || "NOC",
+            name: target.name || "NOC",
+            coords:
+              target.coords && (target.coords.x !== 26.8 || target.coords.y !== 44.9)
+                ? target.coords
+                : { x: 26.8, y: 41.5 },
             isDestination: true,
           },
         ];
@@ -677,13 +895,12 @@ export function useReaderLocations() {
         ];
       }
 
-      // ── 6. KEY CABINET (Current Cabinet Location): Full corridor path via Man Trap -> Above Colo-3 Door -> Bom 12 to Cabinate End Point ──
+      // ── 6. COLO-1 (Final Destination): Full corridor path via Man Trap -> Above Colo-3 Door -> Bom 12 to Colo 1 ──
       if (
+        targetId === "dest-colo-1" ||
         target.cabinetColo === "colo1" ||
-        targetId === "dest-key-cabinet" ||
-        targetId === "dest-key-cabinet-colo1" ||
-        target.name?.toLowerCase().includes("key cabinet") ||
-        target.category === "Cabinet"
+        isColo1(targetId) ||
+        (isColo1(target.name) && !isKeyCabinet && !target.name?.toLowerCase().includes("washroom"))
       ) {
         return [
           {
@@ -778,9 +995,10 @@ export function useReaderLocations() {
             coords: { x: 66.6, y: 44.4 },
           },
           {
-            id: 43,
+            id: target.readerId || target.id || 43,
             sequence: 15,
-            location: "Cabinate End Point",
+            location: target.fullName || "Final Destination (Colo 1)",
+            name: target.name || "Colo 1",
             coords: target.coords || { x: 70.3, y: 44.4 },
             isDestination: true,
           },
@@ -852,6 +1070,8 @@ export function useReaderLocations() {
     customLocations,
     addReaderLocation,
     updateReaderLocation,
+    updateDestinationCoordinates,
+    addDestination,
     deleteLocation: deleteReaderLocation,
     deleteReaderLocation,
     resetToDefaults,
