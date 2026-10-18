@@ -3,7 +3,7 @@ import React, { Suspense, useMemo, useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useTexture, Html, useProgress, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { LocateFixed } from "lucide-react";
+import { LocateFixed, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
 import transform from "../config/mapTransform.json";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
@@ -549,7 +549,7 @@ function FlatPathLayer({
  * Navigation Camera Controller Component
  * Keeps full facility map visible in overview with smooth recenter and interactive orbit
  */
-function NavigationCameraController({ isManualCamera, setIsManualCamera, recenterTrigger }) {
+function NavigationCameraController({ isManualCamera, setIsManualCamera, recenterTrigger, controlsExternalRef }) {
   const { camera } = useThree();
   const controlsRef = useRef();
   const targetVec = useRef(new THREE.Vector3(0, 0, 0));
@@ -594,7 +594,12 @@ function NavigationCameraController({ isManualCamera, setIsManualCamera, recente
 
   return (
     <OrbitControls
-      ref={controlsRef}
+      ref={(instance) => {
+        controlsRef.current = instance;
+        if (controlsExternalRef) {
+          controlsExternalRef.current = instance;
+        }
+      }}
       makeDefault
       enableDamping
       dampingFactor={0.05}
@@ -632,14 +637,35 @@ export default function Map3DCanvas({
   // Manual camera state & Recenter trigger
   const [isManualCamera, setIsManualCamera] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
+  const controlsRef = useRef(null);
 
   const handleRecenter = () => {
     setIsManualCamera(false);
     setRecenterTrigger(Date.now());
   };
 
+  const handleZoomIn = () => {
+    setIsManualCamera(true);
+    if (controlsRef.current) {
+      controlsRef.current.dollyIn(1.3);
+      controlsRef.current.update();
+    }
+  };
+
+  const handleZoomOut = () => {
+    setIsManualCamera(true);
+    if (controlsRef.current) {
+      controlsRef.current.dollyOut(1.3);
+      controlsRef.current.update();
+    }
+  };
+
+  const handleReset = () => {
+    handleRecenter();
+  };
+
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: "#f8fafc" }}>
+    <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: "#f8fafc", touchAction: "none" }}>
       <Canvas camera={{ position: [0, 36, 26], fov: 45 }}>
         <ambientLight intensity={0.8} />
         <directionalLight position={[15, 30, 15]} intensity={1.2} castShadow />
@@ -658,9 +684,58 @@ export default function Map3DCanvas({
             isManualCamera={isManualCamera}
             setIsManualCamera={setIsManualCamera}
             recenterTrigger={recenterTrigger}
+            controlsExternalRef={controlsRef}
           />
         </Suspense>
       </Canvas>
+
+      {/* ── Zoom Controls Overlay (Top Right) ── */}
+      <div
+        style={{
+          position: "absolute",
+          top: "12px",
+          right: "12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
+          zIndex: 25,
+        }}
+      >
+        {[
+          { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In (+)" },
+          { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out (-)" },
+          { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View" },
+        ].map(({ icon, action, title }) => (
+          <button
+            key={title}
+            onClick={(e) => {
+              e.stopPropagation();
+              action();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            title={title}
+            aria-label={title}
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              backgroundColor: "rgba(255,255,255,0.96)",
+              border: "1px solid #d1d5db",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+              color: "#1f2937",
+              transition: "all 0.15s ease",
+              touchAction: "manipulation",
+            }}
+          >
+            {icon}
+          </button>
+        ))}
+      </div>
 
 
       {/* ── Status overlay card (top-left) ── */}

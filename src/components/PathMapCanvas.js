@@ -39,33 +39,292 @@ export default function PathMapCanvas({
   setIsPickMode,
   onPickCoords,
 }) {
-  // Zoom & Pan state
+  // ── Unified Zoom & Pan Gestures (Button, Wheel Scroll, and Pinch-to-Zoom on all devices) ──
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [selectedMarker, setSelectedMarker] = useState(null);
+
   const containerRef = useRef(null);
   const svgRef = useRef(null);
 
-  // Non-passive wheel event listener to fix Chrome/React preventDefault error
+  // Mutable refs to prevent stale closures in native wheel and touch listeners
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const hasDraggedRef = useRef(false);
+
+  // Multi-touch pinch tracking for Mobile and Tablet
+  const touchStateRef = useRef({
+    mode: null, // "pan" | "pinch"
+    initialDistance: 0,
+    initialZoom: 1,
+    initialPan: { x: 0, y: 0 },
+    midpoint: { x: 0, y: 0 },
+    lastTouch: { x: 0, y: 0 },
+  });
+
+  // Clamp pan so map content stays comfortably within view
+  const clampPan = (newPan, currentZoom, containerWidth = 1000, containerHeight = 700) => {
+    if (currentZoom <= 1.01) return { x: 0, y: 0 };
+    const maxX = (containerWidth * (currentZoom - 1)) / 1.7;
+    const maxY = (containerHeight * (currentZoom - 1)) / 1.7;
+    return {
+      x: Math.min(maxX, Math.max(-maxX, newPan.x)),
+      y: Math.min(maxY, Math.max(-maxY, newPan.y)),
+    };
+  };
+
+  const updateZoomPan = (newZoom, newPan) => {
+    const clampedZoom = Math.min(Math.max(newZoom, 1.0), 6.0);
+    const container = containerRef.current;
+    const rect = container ? container.getBoundingClientRect() : { width: 1000, height: 700 };
+    const clampedPan = clampedZoom <= 1.01 ? { x: 0, y: 0 } : clampPan(newPan, clampedZoom, rect.width, rect.height);
+
+    zoomRef.current = clampedZoom;
+    panRef.current = clampedPan;
+    setZoom(clampedZoom);
+    setPan(clampedPan);
+  };
+
+  // 1. Button Zoom Controls
+  const handleZoomIn = () => {
+    updateZoomPan(zoomRef.current + 0.4, panRef.current);
+  };
+
+  const handleZoomOut = () => {
+    updateZoomPan(zoomRef.current - 0.4, panRef.current);
+  };
+
+  const handleReset = () => {
+    updateZoomPan(1.0, { x: 0, y: 0 });
+  };
+
+  // 2. Wheel Scroll Zoom (Desktop / Laptop / Trackpad)
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left - rect.width / 2;
+    const mouseY = e.clientY - rect.top - rect.height / 2;
+
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+
+    // Handles trackpad pinch gestures (ctrlKey) and traditional scroll wheels
+    const delta = e.ctrlKey ? -e.deltaY * 0.02 : -e.deltaY * 0.0025;
+    const factor = Math.exp(delta);
+    const nextZoom = Math.min(Math.max(1.0, currentZoom * factor), 6.0);
+
+    if (Math.abs(nextZoom - 1.0) < 0.02) {
+      updateZoomPan(1.0, { x: 0, y: 0 });
+      return;
+    }
+
+    // Zoom centered towards mouse/pointer position
+    const scaleRatio = nextZoom / currentZoom;
+    const newPanX = mouseX - (mouseX - currentPan.x) * scaleRatio;
+    const newPanY = mouseY - (mouseY - currentPan.y) * scaleRatio;
+
+    updateZoomPan(nextZoom, { x: newPanX, y: newPanY });
+  };
+
+  // 3. Touch Gestures: Pinch Zoom and Single-Finger Pan (Mobile and Tablet)
+  const getTouchDist = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+  const getTouchMidpoint = (t1, t2, rect) => ({
+    x: (t1.clientX + t2.clientX) / 2 - rect.left - rect.width / 2,
+    y: (t1.clientY + t2.clientY) / 2 - rect.top - rect.height / 2,
+  });
+
+  // Track double tap on touchscreens
+  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+
+  // Helper for marker clicks that ignores clicks that originated from a pan/drag gesture
+  const handleMarkerClick = (marker, e) => {
+    e.stopPropagation();
+    if (hasDraggedRef.current) {
+      return;
+    }
+    setSelectedMarker(marker);
+  };
+
+  const handleTouchStart = (e) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dist = getTouchDist(e.touches[0], e.touches[1]);
+      const mid = getTouchMidpoint(e.touches[0], e.touches[1], rect);
+      touchStateRef.current = {
+        mode: "pinch",
+        initialDistance: dist,
+        initialZoom: zoomRef.current,
+        initialPan: { ...panRef.current },
+        midpoint: mid,
+        lastTouch: { x: 0, y: 0 },
+      };
+      setIsDragging(true);
+      isDraggingRef.current = true;
+      hasDraggedRef.current = true;
+    } else if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      const now = Date.now();
+      const prevTap = lastTapRef.current;
+      const timeDiff = now - prevTap.time;
+      const distDiff = Math.hypot(touch.clientX - prevTap.x, touch.clientY - prevTap.y);
+
+      // Double-tap to zoom in / reset view on touchscreen
+      if (timeDiff < 320 && distDiff < 35) {
+        e.preventDefault();
+        lastTapRef.current = { time: 0, x: 0, y: 0 };
+        if (zoomRef.current > 1.2) {
+          updateZoomPan(1.0, { x: 0, y: 0 });
+        } else {
+          const mouseX = touch.clientX - rect.left - rect.width / 2;
+          const mouseY = touch.clientY - rect.top - rect.height / 2;
+          const targetZoom = 2.5;
+          const newPanX = mouseX - (mouseX - panRef.current.x) * (targetZoom / zoomRef.current);
+          const newPanY = mouseY - (mouseY - panRef.current.y) * (targetZoom / zoomRef.current);
+          updateZoomPan(targetZoom, { x: newPanX, y: newPanY });
+        }
+        return;
+      }
+      lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
+
+      if (zoomRef.current > 1.02) {
+        touchStateRef.current = {
+          mode: "pan",
+          initialDistance: 0,
+          initialZoom: zoomRef.current,
+          initialPan: { ...panRef.current },
+          midpoint: { x: 0, y: 0 },
+          lastTouch: { x: touch.clientX, y: touch.clientY },
+        };
+        setIsDragging(true);
+        isDraggingRef.current = true;
+        hasDraggedRef.current = false;
+      }
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const ts = touchStateRef.current;
+
+    if (e.touches.length === 2 && ts.mode === "pinch") {
+      e.preventDefault();
+      hasDraggedRef.current = true;
+      const dist = getTouchDist(e.touches[0], e.touches[1]);
+      const currentMid = getTouchMidpoint(e.touches[0], e.touches[1], rect);
+
+      if (ts.initialDistance > 5) {
+        const scale = dist / ts.initialDistance;
+        const nextZoom = Math.min(Math.max(1.0, ts.initialZoom * scale), 6.0);
+
+        if (nextZoom <= 1.02) {
+          updateZoomPan(1.0, { x: 0, y: 0 });
+        } else {
+          // Supports simultaneous zooming and panning with two fingers
+          const scaleRatio = nextZoom / ts.initialZoom;
+          const pinchPanX = ts.midpoint.x - (ts.midpoint.x - ts.initialPan.x) * scaleRatio;
+          const pinchPanY = ts.midpoint.y - (ts.midpoint.y - ts.initialPan.y) * scaleRatio;
+          const translationX = currentMid.x - ts.midpoint.x;
+          const translationY = currentMid.y - ts.midpoint.y;
+          updateZoomPan(nextZoom, { x: pinchPanX + translationX, y: pinchPanY + translationY });
+        }
+      }
+    } else if (e.touches.length === 1 && ts.mode === "pan" && zoomRef.current > 1.02) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - ts.lastTouch.x;
+      const dy = e.touches[0].clientY - ts.lastTouch.y;
+
+      if (Math.hypot(dx, dy) > 2) {
+        hasDraggedRef.current = true;
+      }
+
+      ts.lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+
+      const newPan = {
+        x: panRef.current.x + dx,
+        y: panRef.current.y + dy,
+      };
+      updateZoomPan(zoomRef.current, newPan);
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (e.touches.length === 0) {
+      touchStateRef.current.mode = null;
+      setIsDragging(false);
+      isDraggingRef.current = false;
+      // Keep hasDraggedRef true for 80ms to prevent phantom tap on markers after drag
+      setTimeout(() => {
+        hasDraggedRef.current = false;
+      }, 80);
+    } else if (e.touches.length === 1) {
+      touchStateRef.current.mode = "pan";
+      touchStateRef.current.lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  };
+
+  // 4. Mouse Drag / Panning (Computer)
+  const handleMouseDown = (e) => {
+    if (zoomRef.current > 1 && e.button === 0) {
+      setIsDragging(true);
+      isDraggingRef.current = true;
+      hasDraggedRef.current = false;
+      dragStartRef.current = {
+        x: e.clientX - panRef.current.x,
+        y: e.clientY - panRef.current.y,
+      };
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (isDraggingRef.current && zoomRef.current > 1) {
+      hasDraggedRef.current = true;
+      const newPan = {
+        x: e.clientX - dragStartRef.current.x,
+        y: e.clientY - dragStartRef.current.y,
+      };
+      updateZoomPan(zoomRef.current, newPan);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    isDraggingRef.current = false;
+  };
+
+  // Register native non-passive listeners for wheel and touch pinch-to-zoom
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handleWheelListener = (e) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.2 : -0.2;
-      setZoom((z) => {
-        const nextZ = Math.min(Math.max(z + delta, 1.0), 5.0);
-        if (nextZ === 1.0) setPan({ x: 0, y: 0 });
-        return nextZ;
-      });
-    };
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    container.addEventListener("touchstart", handleTouchStart, { passive: false });
+    container.addEventListener("touchmove", handleTouchMove, { passive: false });
+    container.addEventListener("touchend", handleTouchEnd, { passive: false });
+    container.addEventListener("touchcancel", handleTouchEnd, { passive: false });
 
-    container.addEventListener("wheel", handleWheelListener, { passive: false });
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("mousemove", handleMouseMove);
+
     return () => {
-      container.removeEventListener("wheel", handleWheelListener);
+      container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("touchstart", handleTouchStart);
+      container.removeEventListener("touchmove", handleTouchMove);
+      container.removeEventListener("touchend", handleTouchEnd);
+      container.removeEventListener("touchcancel", handleTouchEnd);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("mousemove", handleMouseMove);
     };
   }, []);
 
@@ -155,31 +414,11 @@ export default function PathMapCanvas({
   // Destination
   const destinationReader = destination || allReaders[allReaders.length - 1];
 
-  // ── Controls ─────────────────────────────────────────────────────────────
-  const handleZoomIn = () => setZoom((z) => Math.min(z + 0.4, 5.0));
-  const handleZoomOut = () =>
-    setZoom((z) => {
-      const n = Math.max(z - 0.4, 1.0);
-      if (n === 1.0) setPan({ x: 0, y: 0 });
-      return n;
-    });
-  const handleReset = () => {
-    setZoom(1.0);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const handleMouseDown = (e) => {
-    if (zoom > 1 && e.button === 0) {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    }
-  };
-  const handleMouseMove = (e) => {
-    if (isDragging && zoom > 1) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-  };
-  const handleMouseUp = () => setIsDragging(false);
-
   const handleSvgClick = (e) => {
+    if (hasDraggedRef.current) {
+      hasDraggedRef.current = false;
+      return;
+    }
     if (isPickMode && onPickCoords && svgRef.current) {
       const svg = svgRef.current;
       const pt = svg.createSVGPoint();
@@ -250,13 +489,10 @@ export default function PathMapCanvas({
         </div>
       )}
 
-      {/* Interactive Map Graphic SVG Overlay Container */}
+      {/* Interactive Map Graphic SVG Overlay Container with touch and wheel support */}
       <div
         ref={containerRef}
         onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
         style={{
           flex: 1,
           position: "relative",
@@ -269,6 +505,9 @@ export default function PathMapCanvas({
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: "#f8fafc",
+          touchAction: "none",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
         {/* Zoom & Pan Wrapper Element */}
@@ -441,10 +680,7 @@ export default function PathMapCanvas({
                 return (
                   <g
                     key={`wp-${r.id || `${r.coords.x}-${r.coords.y}`}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedMarker(r);
-                    }}
+                    onClick={(e) => handleMarkerClick(r, e)}
                     style={{ cursor: "pointer" }}
                   >
                     <title>{r.location || r.name || "Waypoint"}</title>
@@ -471,10 +707,7 @@ export default function PathMapCanvas({
               return (
                 <g
                   key={r.id || `${r.coords.x}-${r.coords.y}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedMarker(r);
-                  }}
+                  onClick={(e) => handleMarkerClick(r, e)}
                   style={{ cursor: "pointer" }}
                 >
                   <title>{r.location || r.name || "Reader Location"}</title>
@@ -532,10 +765,7 @@ export default function PathMapCanvas({
             {destinationReader?.coords && (
               <g
                 transform={`translate(${px(destinationReader.coords.x)},${py(destinationReader.coords.y)})`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedMarker(destinationReader);
-                }}
+                onClick={(e) => handleMarkerClick(destinationReader, e)}
                 style={{ cursor: "pointer" }}
               >
                 <circle
@@ -717,17 +947,23 @@ export default function PathMapCanvas({
 
 
           {[
-            { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In" },
-            { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out" },
+            { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In (+)" },
+            { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out (-)" },
             { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View (Fit Full Map)" },
           ].map(({ icon, action, title }) => (
             <button
               key={title}
-              onClick={action}
+              onClick={(e) => {
+                e.stopPropagation();
+                action();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               title={title}
+              aria-label={title}
               style={{
-                width: "36px",
-                height: "36px",
+                width: "40px",
+                height: "40px",
                 borderRadius: "10px",
                 backgroundColor: "rgba(255,255,255,0.96)",
                 border: "1px solid #d1d5db",
@@ -735,9 +971,10 @@ export default function PathMapCanvas({
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
-                boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
                 color: "#1f2937",
                 transition: "all 0.15s ease",
+                touchAction: "manipulation",
               }}
             >
               {icon}
