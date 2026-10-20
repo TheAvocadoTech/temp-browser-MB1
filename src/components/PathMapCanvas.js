@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import defaultReaders from "../config/rfidReaders.json";
 import { ZoomIn, ZoomOut, RotateCcw, Crosshair } from "lucide-react";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
+import { isVisitorInColoArea } from "../hooks/useReaderLocations";
 
 // ── Geometry helpers ─────────────────────────────────────────────────────────
 // Returns the angle in degrees from point a → b in SVG space (1000×700)
@@ -55,6 +56,13 @@ export default function PathMapCanvas({
   const dragStartRef = useRef({ x: 0, y: 0 });
   const hasDraggedRef = useRef(false);
 
+  // Auto-zoom & User interaction tracking
+  const userPannedRef = useRef(false);
+  const wasInColoRef = useRef(false);
+  const lastFocusPosRef = useRef(null);
+  const [showColoBadge, setShowColoBadge] = useState(false);
+  const coloBadgeTimeoutRef = useRef(null);
+
   // Multi-touch pinch tracking for Mobile and Tablet
   const touchStateRef = useRef({
     mode: null, // "pan" | "pinch"
@@ -88,22 +96,52 @@ export default function PathMapCanvas({
     setPan(clampedPan);
   };
 
+  // Helper to center and zoom on a specific percentage coordinate
+  const focusOnPoint = useCallback((coords, targetZoom = 2.4) => {
+    if (!coords) return;
+    const container = containerRef.current;
+    const rect = container ? container.getBoundingClientRect() : { width: 1000, height: 700 };
+
+    const containerAspect = rect.width / (rect.height || 1);
+    let svgW = rect.width;
+    let svgH = rect.height;
+    if (containerAspect > 1000 / 700) {
+      svgH = rect.height;
+      svgW = rect.height * (1000 / 700);
+    } else {
+      svgW = rect.width;
+      svgH = rect.width * (700 / 1000);
+    }
+
+    const targetOffsetX = ((coords.x - 50) / 100) * svgW;
+    const targetOffsetY = ((coords.y - 50) / 100) * svgH;
+
+    const newPanX = -targetOffsetX * targetZoom;
+    const newPanY = -targetOffsetY * targetZoom;
+
+    updateZoomPan(targetZoom, { x: newPanX, y: newPanY });
+  }, []);
+
   // 1. Button Zoom Controls
   const handleZoomIn = () => {
+    userPannedRef.current = true;
     updateZoomPan(zoomRef.current + 0.4, panRef.current);
   };
 
   const handleZoomOut = () => {
+    userPannedRef.current = true;
     updateZoomPan(zoomRef.current - 0.4, panRef.current);
   };
 
   const handleReset = () => {
+    userPannedRef.current = true;
     updateZoomPan(1.0, { x: 0, y: 0 });
   };
 
   // 2. Wheel Scroll Zoom (Desktop / Laptop / Trackpad)
   const handleWheel = (e) => {
     e.preventDefault();
+    userPannedRef.current = true;
     const container = containerRef.current;
     if (!container) return;
 
@@ -220,6 +258,7 @@ export default function PathMapCanvas({
 
     if (e.touches.length === 2 && ts.mode === "pinch") {
       e.preventDefault();
+      userPannedRef.current = true;
       hasDraggedRef.current = true;
       const dist = getTouchDist(e.touches[0], e.touches[1]);
       const currentMid = getTouchMidpoint(e.touches[0], e.touches[1], rect);
@@ -242,6 +281,7 @@ export default function PathMapCanvas({
       }
     } else if (e.touches.length === 1 && ts.mode === "pan" && zoomRef.current > 1.02) {
       e.preventDefault();
+      userPannedRef.current = true;
       const dx = e.touches[0].clientX - ts.lastTouch.x;
       const dy = e.touches[0].clientY - ts.lastTouch.y;
 
@@ -289,6 +329,7 @@ export default function PathMapCanvas({
 
   const handleMouseMove = (e) => {
     if (isDraggingRef.current && zoomRef.current > 1) {
+      userPannedRef.current = true;
       hasDraggedRef.current = true;
       const newPan = {
         x: e.clientX - dragStartRef.current.x,
@@ -363,6 +404,52 @@ export default function PathMapCanvas({
   });
 
   const animatedSeq = activeSeq ?? currentSeq;
+
+  // Detect whether the visitor is currently inside the Colo area
+  const isInColoInfo = useMemo(() => {
+    return isVisitorInColoArea(activeReader, currentPos, destination);
+  }, [activeReader, currentPos, destination]);
+
+  // Auto-zoom live location when visitor reaches colo 1 entry and moves towards colo 1
+  useEffect(() => {
+    if (!currentPos) return;
+
+    if (isInColoInfo.inColo) {
+      // First entry or significant position change (> 1.2% map units) keeps the view smoothly centered
+      const last = lastFocusPosRef.current;
+      const moved = !last || Math.hypot(currentPos.x - last.x, currentPos.y - last.y) > 1.2;
+
+      if (!userPannedRef.current && moved) {
+        lastFocusPosRef.current = { x: currentPos.x, y: currentPos.y };
+        focusOnPoint(currentPos, 2.4);
+      }
+
+      // If just entered colo area, show confirmation badge
+      if (!wasInColoRef.current) {
+        wasInColoRef.current = true;
+        setShowColoBadge(true);
+        if (coloBadgeTimeoutRef.current) clearTimeout(coloBadgeTimeoutRef.current);
+        coloBadgeTimeoutRef.current = setTimeout(() => setShowColoBadge(false), 3800);
+      }
+    } else {
+      // If visitor was in colo area and has exited back to the corridor
+      if (wasInColoRef.current) {
+        wasInColoRef.current = false;
+        userPannedRef.current = false;
+        lastFocusPosRef.current = null;
+        updateZoomPan(1.0, { x: 0, y: 0 });
+      }
+    }
+  }, [isInColoInfo.inColo, currentPos?.x, currentPos?.y, focusOnPoint]);
+
+  // Manual re-center / focus on live location handler
+  const handleFocusLive = () => {
+    userPannedRef.current = false;
+    if (currentPos) {
+      lastFocusPosRef.current = { x: currentPos.x, y: currentPos.y };
+      focusOnPoint(currentPos, isInColoInfo.inColo ? 2.4 : 1.8);
+    }
+  };
 
   // SVG coordinate helpers (viewBox 1000 × 700)
   const px = (x) => (x / 100) * 1000;
@@ -510,6 +597,47 @@ export default function PathMapCanvas({
           WebkitUserSelect: "none",
         }}
       >
+        {/* ── Auto-Zoom in Colo Area Notification Badge ── */}
+        {showColoBadge && (
+          <div
+            style={{
+              position: "absolute",
+              top: "12px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              backgroundColor: "rgba(15, 23, 42, 0.94)",
+              backdropFilter: "blur(8px)",
+              color: "#ffffff",
+              padding: "7px 18px",
+              borderRadius: "30px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              zIndex: 35,
+              boxShadow: "0 6px 20px rgba(0,0,0,0.3)",
+              border: "1px solid rgba(249, 115, 22, 0.6)",
+              fontSize: "12px",
+              fontWeight: "700",
+              pointerEvents: "none",
+            }}
+          >
+            <span
+              style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                backgroundColor: "#f97316",
+                boxShadow: "0 0 8px #f97316",
+              }}
+            />
+            <span>
+              {isInColoInfo.isColo1Entry
+                ? "Reached Colo 1 Entry • Auto-Zooming Live Location"
+                : `Entered ${isInColoInfo.coloName || "Colo Area"} • Live Location Auto-Zoomed`}
+            </span>
+          </div>
+        )}
+
         {/* Zoom & Pan Wrapper Element */}
         <div
           style={{
@@ -517,7 +645,7 @@ export default function PathMapCanvas({
             height: "100%",
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: "center center",
-            transition: isDragging ? "none" : "transform 0.15s ease-out",
+            transition: isDragging ? "none" : "transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -568,23 +696,23 @@ export default function PathMapCanvas({
               strokeLinejoin="round"
             />
 
-            {/* ── 2. Completed Path (Passed segments) — Translucent Red (20-30%) ── */}
+            {/* ── 2. Completed Path (Passed segments) — Vivid Orange ── */}
             {smoothPassed.length > 1 && (
               <>
                 {/* Glow for completed path */}
                 <polyline
                   points={passedPoints}
                   fill="none"
-                  stroke="rgba(239, 68, 68, 0.12)"
+                  stroke="rgba(249, 115, 22, 0.25)"
                   strokeWidth="8"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                {/* Core Translucent Red Line (25% opacity) */}
+                {/* Core Orange Line */}
                 <polyline
                   points={passedPoints}
                   fill="none"
-                  stroke="rgba(239, 68, 68, 0.25)"
+                  stroke="#f97316"
                   strokeWidth="3.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -947,10 +1075,16 @@ export default function PathMapCanvas({
 
 
           {[
+            {
+              icon: <Crosshair size={18} />,
+              action: handleFocusLive,
+              title: "Center on Live Location",
+              highlight: !userPannedRef.current && isInColoInfo.inColo,
+            },
             { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In (+)" },
             { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out (-)" },
             { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View (Fit Full Map)" },
-          ].map(({ icon, action, title }) => (
+          ].map(({ icon, action, title, highlight }) => (
             <button
               key={title}
               onClick={(e) => {
@@ -965,14 +1099,14 @@ export default function PathMapCanvas({
                 width: "40px",
                 height: "40px",
                 borderRadius: "10px",
-                backgroundColor: "rgba(255,255,255,0.96)",
-                border: "1px solid #d1d5db",
+                backgroundColor: highlight ? "#0284c7" : "rgba(255,255,255,0.96)",
+                border: highlight ? "1px solid #0284c7" : "1px solid #d1d5db",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
-                color: "#1f2937",
+                boxShadow: highlight ? "0 2px 10px rgba(2, 132, 199, 0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
+                color: highlight ? "#ffffff" : "#1f2937",
                 transition: "all 0.15s ease",
                 touchAction: "manipulation",
               }}
@@ -1198,9 +1332,10 @@ export default function PathMapCanvas({
               style={{
                 width: "14px",
                 height: "4px",
-                backgroundColor: "rgba(239, 68, 68, 0.3)",
+                backgroundColor: "#f97316",
                 borderRadius: "2px",
                 display: "inline-block",
+                boxShadow: "0 0 4px rgba(249, 115, 22, 0.5)",
               }}
             />
             <span>Completed</span>

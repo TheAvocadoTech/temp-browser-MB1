@@ -7,6 +7,7 @@ import { LocateFixed, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
 import transform from "../config/mapTransform.json";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
+import { isVisitorInColoArea } from "../hooks/useReaderLocations";
 
 // World-unit dimensions corresponding to 100% floorplan width and depth
 const FLOOR_WIDTH = 40;
@@ -239,37 +240,20 @@ function FlatPathLayer({
   activeRoute,
   selectedMarker,
   setSelectedMarker,
+  smoothLoc,
+  allReaders,
+  activeReader,
 }) {
-  const apiReaders    = (liveData?.allReaders?.length) ? liveData.allReaders : defaultReaders;
   const currentReader = liveData?.currentReader || defaultReaders[0];
   const currentSeq    = currentReader.sequence || 1;
 
-  // Use activeRoute tailored for the destination or merge local coords
-  const allReaders = useMemo(() => {
-    if (activeRoute && activeRoute.length > 0) {
-      return activeRoute;
-    }
-    return apiReaders.map((r) => {
-      const local = defaultReaders.find((d) => d.id === r.id);
-      return local ? { ...r, coords: local.coords, location: local.location } : r;
-    });
-  }, [activeRoute, apiReaders]);
-
-  const activeReader =
-    allReaders.find((r) => r.id === currentReader.id) || currentReader;
-
-  // Continuous smooth location interpolation along corridor checkpoints
   const {
     currentPos,
     currentAngle,
     passedPoints: smoothPassed,
     remainingPoints: smoothRemaining,
     activeSeq,
-  } = useSmoothLocation({
-    currentReader: activeReader,
-    allReaders,
-    baseDuration: 380,
-  });
+  } = smoothLoc;
 
   const animatedSeq = activeSeq ?? currentSeq;
 
@@ -301,21 +285,19 @@ function FlatPathLayer({
         />
       )}
 
-      {/* ── 2. Completed Path (Passed segments) — Translucent Red (20-30%) ── */}
+      {/* ── 2. Completed Path (Passed segments) — Vivid Orange ── */}
       {passedPoints3D.length > 1 && (
         <>
           <Line
             points={passedPoints3D}
-            color="#ef4444"
-            opacity={0.12}
+            color="#f97316"
+            opacity={0.3}
             transparent
             lineWidth={8}
           />
           <Line
             points={passedPoints3D}
-            color="#ef4444"
-            opacity={0.25}
-            transparent
+            color="#ea580c"
             lineWidth={4.5}
           />
         </>
@@ -547,9 +529,16 @@ function FlatPathLayer({
 
 /**
  * Navigation Camera Controller Component
- * Keeps full facility map visible in overview with smooth recenter and interactive orbit
+ * Smoothly auto-zooms live location when visitor enters Colo area, and supports interactive orbit
  */
-function NavigationCameraController({ isManualCamera, setIsManualCamera, recenterTrigger, controlsExternalRef }) {
+function NavigationCameraController({
+  isManualCamera,
+  setIsManualCamera,
+  recenterTrigger,
+  controlsExternalRef,
+  currentPos,
+  isInColo,
+}) {
   const { camera } = useThree();
   const controlsRef = useRef();
   const targetVec = useRef(new THREE.Vector3(0, 0, 0));
@@ -580,8 +569,14 @@ function NavigationCameraController({ isManualCamera, setIsManualCamera, recente
   useFrame((state, delta) => {
     if (isManualCamera) return;
 
-    targetVec.current.set(0, 0, 0);
-    camVec.current.set(0, 36, 26);
+    if (isInColo && currentPos) {
+      const [wx, wy, wz] = pctToWorld(currentPos.x, currentPos.y, 0.15);
+      targetVec.current.set(wx, wy, wz);
+      camVec.current.set(wx, 15, wz + 12);
+    } else {
+      targetVec.current.set(0, 0, 0);
+      camVec.current.set(0, 36, 26);
+    }
 
     const lerpFactor = Math.min(1.0, delta * 3.5);
 
@@ -622,14 +617,32 @@ export default function Map3DCanvas({
   onOpenReaderManager,
   onSelectDestination,
 }) {
-  const allReaders = (activeRoute && activeRoute.length > 0)
-    ? activeRoute
-    : (liveData?.allReaders?.length ? liveData.allReaders : defaultReaders);
+  const allReaders = useMemo(() => {
+    if (activeRoute && activeRoute.length > 0) {
+      return activeRoute;
+    }
+    const apiReaders = liveData?.allReaders?.length ? liveData.allReaders : defaultReaders;
+    return apiReaders.map((r) => {
+      const local = defaultReaders.find((d) => d.id === r.id);
+      return local ? { ...r, coords: local.coords, location: local.location } : r;
+    });
+  }, [activeRoute, liveData?.allReaders]);
+
   const currentReader = liveData?.currentReader || defaultReaders[0];
-  const currentSeq    = currentReader.sequence || 1;
-  const totalStops    = allReaders.filter((r) => !r.isWaypoint).length;
-  const progressPct   = totalStops > 1 ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100) : 0;
+  const activeReader =
+    allReaders.find((r) => r.id === currentReader.id) || currentReader;
+  const currentSeq = currentReader.sequence || 1;
+  const totalStops = allReaders.filter((r) => !r.isWaypoint).length;
+  const progressPct = totalStops > 1 ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100) : 0;
   const destinationReader = destination || allReaders[allReaders.length - 1];
+
+  // Smooth location state
+  const smoothLoc = useSmoothLocation({
+    currentReader: activeReader,
+    allReaders,
+    baseDuration: 380,
+  });
+  const { currentPos } = smoothLoc;
 
   // Selected marker state for click inspection
   const [selectedMarker, setSelectedMarker] = useState(null);
@@ -638,6 +651,31 @@ export default function Map3DCanvas({
   const [isManualCamera, setIsManualCamera] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
   const controlsRef = useRef(null);
+
+  // Colo Area detection
+  const isInColoInfo = useMemo(() => {
+    return isVisitorInColoArea(activeReader, currentPos, destination);
+  }, [activeReader, currentPos, destination]);
+
+  const wasInColoRef = useRef(false);
+  const [showColoBadge, setShowColoBadge] = useState(false);
+
+  useEffect(() => {
+    if (isInColoInfo.inColo) {
+      if (!wasInColoRef.current) {
+        wasInColoRef.current = true;
+        setIsManualCamera(false);
+        setShowColoBadge(true);
+        const timer = setTimeout(() => setShowColoBadge(false), 3800);
+        return () => clearTimeout(timer);
+      }
+    } else {
+      if (wasInColoRef.current) {
+        wasInColoRef.current = false;
+        setIsManualCamera(false);
+      }
+    }
+  }, [isInColoInfo.inColo]);
 
   const handleRecenter = () => {
     setIsManualCamera(false);
@@ -666,6 +704,47 @@ export default function Map3DCanvas({
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: "#f8fafc", touchAction: "none" }}>
+      {/* ── Auto-Zoom in Colo Area Notification Badge ── */}
+      {showColoBadge && (
+        <div
+          style={{
+            position: "absolute",
+            top: "12px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            backgroundColor: "rgba(15, 23, 42, 0.94)",
+            backdropFilter: "blur(8px)",
+            color: "#ffffff",
+            padding: "7px 18px",
+            borderRadius: "30px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            zIndex: 35,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.3)",
+            border: "1px solid rgba(249, 115, 22, 0.6)",
+            fontSize: "12px",
+            fontWeight: "700",
+            pointerEvents: "none",
+          }}
+        >
+          <span
+            style={{
+              width: "8px",
+              height: "8px",
+              borderRadius: "50%",
+              backgroundColor: "#f97316",
+              boxShadow: "0 0 8px #f97316",
+            }}
+          />
+          <span>
+            {isInColoInfo.isColo1Entry
+              ? "Reached Colo 1 Entry • Auto-Zooming Live Location"
+              : `Entered ${isInColoInfo.coloName || "Colo Area"} • Live Location Auto-Zoomed`}
+          </span>
+        </div>
+      )}
+
       <Canvas camera={{ position: [0, 36, 26], fov: 45 }}>
         <ambientLight intensity={0.8} />
         <directionalLight position={[15, 30, 15]} intensity={1.2} castShadow />
@@ -679,12 +758,17 @@ export default function Map3DCanvas({
             activeRoute={activeRoute}
             selectedMarker={selectedMarker}
             setSelectedMarker={setSelectedMarker}
+            smoothLoc={smoothLoc}
+            allReaders={allReaders}
+            activeReader={activeReader}
           />
           <NavigationCameraController
             isManualCamera={isManualCamera}
             setIsManualCamera={setIsManualCamera}
             recenterTrigger={recenterTrigger}
             controlsExternalRef={controlsRef}
+            currentPos={currentPos}
+            isInColo={isInColoInfo.inColo}
           />
         </Suspense>
       </Canvas>

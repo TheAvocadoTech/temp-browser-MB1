@@ -1078,3 +1078,90 @@ export function useReaderLocations() {
     getRouteForDestination,
   };
 }
+
+/**
+ * Detects whether the visitor / live tag has reached a Colo area (Colo 1 entry, Colo 2, or Colo 3).
+ * Specifically for Colo 1: auto-zooms ONLY when the live location reaches Colo 1 entry (Reader 30 / seq >= 12 / coords.x >= 60.5)
+ * and is moving towards/inside Colo 1. Passage readers 39 & 46 do NOT trigger auto-zoom.
+ *
+ * Returns { inColo: boolean, coloName: string | null, coloId: string | null, isColo1Entry: boolean }
+ */
+export function isVisitorInColoArea(reader, coords, destination) {
+  if (!reader && !coords) return { inColo: false, coloName: null, coloId: null, isColo1Entry: false };
+
+  const rName = (reader?.location || reader?.name || "").toLowerCase();
+  const rId = reader?.id;
+  const destName = (destination?.fullName || destination?.name || destination?.id || "").toLowerCase();
+
+  const isColo1Dest = /colo\s*[-_]?\s*(1|one)/i.test(destName);
+  const isColo2Dest = /colo\s*[-_]?\s*(2|two)/i.test(destName);
+  const isColo3Dest = /colo\s*[-_]?\s*(3|three)/i.test(destName);
+
+  // ── 1. Colo 1 Area ───────────────────────────────────────────────────────────
+  // Specifically trigger ONLY when reaching "Colo-1 Entry" (id: 30, seq 12) or inside Colo 1
+  // (readers 30, 34, 41, 43).
+  // "Colo-1-2 passage 1" (id: 39) & "Colo-1-2 passage 2" (id: 46) are in the outside corridor and must NOT trigger zoom.
+  const isPassage = /passage/i.test(rName);
+
+  if (!isPassage) {
+    if (rId === 30 || /colo\s*[-_]?\s*1\s*entry/i.test(rName)) {
+      return { inColo: true, coloName: "Colo 1", coloId: "colo1", isColo1Entry: true };
+    }
+    if ([34, 41, 43].includes(rId) || /row\s*5/i.test(rName) || /cabinate\s*end/i.test(rName)) {
+      return { inColo: true, coloName: "Colo 1", coloId: "colo1", isColo1Entry: false };
+    }
+    if (isColo1Dest && Number(reader?.sequence) >= 12) {
+      return { inColo: true, coloName: "Colo 1", coloId: "colo1", isColo1Entry: reader?.sequence === 12 };
+    }
+  }
+
+  // Live coordinates check for Colo 1:
+  // Passage 2 is at { x: 56.8, y: 39.8 }. Colo-1 Entry is at { x: 61.3, y: 40.3 }.
+  // As the visitor's live location approaches and reaches Colo-1 Entry (coords.x >= 60.5):
+  if ((isColo1Dest || /colo\s*[-_]?\s*1/i.test(rName)) && !isPassage) {
+    if (coords && coords.x >= 60.5 && coords.y >= 38.5 && coords.y <= 48.0) {
+      return { inColo: true, coloName: "Colo 1", coloId: "colo1", isColo1Entry: coords.x <= 63.5 };
+    }
+  }
+
+  // ── 2. Colo 2 Area ───────────────────────────────────────────────────────────
+  if ((/colo\s*[-_]?\s*2/i.test(rName) && !isPassage) || [9046, 9047].includes(rId)) {
+    return { inColo: true, coloName: "Colo 2", coloId: "colo2", isColo1Entry: false };
+  }
+  if (rId === 45 && isColo2Dest) {
+    return { inColo: true, coloName: "Colo 2", coloId: "colo2", isColo1Entry: false };
+  }
+  if (isColo2Dest && (Number(reader?.sequence) >= 9 || (coords && coords.x >= 44 && coords.x <= 55 && coords.y <= 41.5 && coords.y >= 26))) {
+    return { inColo: true, coloName: "Colo 2", coloId: "colo2", isColo1Entry: false };
+  }
+
+  // ── 3. Colo 3 Area ───────────────────────────────────────────────────────────
+  if (/colo\s*[-_]?\s*3/i.test(rName) || [9001, 9002].includes(rId)) {
+    if (rId === 29) {
+      if (isColo3Dest) return { inColo: true, coloName: "Colo 3", coloId: "colo3", isColo1Entry: false };
+    } else {
+      return { inColo: true, coloName: "Colo 3", coloId: "colo3", isColo1Entry: false };
+    }
+  }
+  if (isColo3Dest && (Number(reader?.sequence) >= 3 || (coords && coords.x <= 24 && coords.y <= 36.5 && rId !== 38 && rId !== 32))) {
+    return { inColo: true, coloName: "Colo 3", coloId: "colo3", isColo1Entry: false };
+  }
+
+  // Fallback coordinate checks if reader sequence is not yet mapped
+  if (coords) {
+    // Colo 1: strictly starting at Colo 1 entry (x >= 60.5)
+    if (coords.x >= 60.5 && coords.y >= 38.5 && coords.y <= 48) {
+      return { inColo: true, coloName: "Colo 1", coloId: "colo1", isColo1Entry: coords.x <= 63.5 };
+    }
+    if (coords.x >= 44.5 && coords.x <= 54 && coords.y >= 26 && coords.y <= 41) {
+      return { inColo: true, coloName: "Colo 2", coloId: "colo2", isColo1Entry: false };
+    }
+    if (coords.x >= 5 && coords.x <= 23 && coords.y >= 22 && coords.y <= 36 && rId !== 38 && rId !== 32) {
+      return { inColo: true, coloName: "Colo 3", coloId: "colo3", isColo1Entry: false };
+    }
+  }
+
+  return { inColo: false, coloName: null, coloId: null, isColo1Entry: false };
+}
+
+
