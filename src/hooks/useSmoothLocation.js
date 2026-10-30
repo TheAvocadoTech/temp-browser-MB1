@@ -8,7 +8,10 @@ function dist(p1, p2) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-// 
+// Smooth quadratic ease-in-out for fluid acceleration and deceleration
+function easeInOutQuad(t) {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
 
 // Calculate angle in degrees from p1 to p2 in SVG space (1000×700)
 export function angleDegrees(p1, p2) {
@@ -35,7 +38,8 @@ function lerpAngle(fromDeg, toDeg, t) {
  */
 export function useSmoothLocation({ currentReader, allReaders = [], baseDuration = 1000 }) {
   // Sort readers strictly by sequence order so navigation sequence is always preserved
-  c
+  const sortedReaders = useMemo(() => {
+    if (!allReaders || !allReaders.length) return [];
     return [...allReaders].sort(
       (a, b) => (Number(a.sequence) || 0) - (Number(b.sequence) || 0)
     );
@@ -137,14 +141,17 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
         currentAngleRef.current = initAngle;
         setCurrentAngle(initAngle);
       }
-    }ersKey]);
+    }
+  }, [readersKey]);
 
   // Main animation effect triggered strictly when the active reader target changes
   useEffect(() => {
-    i
+    if (isFirstRender.current || !sortedReaders.length || !currentReader) return;
+
     const targetIdx = getReaderIndex(currentReader);
     const finalDestinationCoords = sortedReaders[targetIdx]?.coords || currentReader.coords || targetCoords;
-    const targetKey = `${targetIdx}_$
+    const targetKey = `${targetIdx}_${currentReader?.id || ""}_${finalDestinationCoords.x.toFixed(1)}_${finalDestinationCoords.y.toFixed(1)}`;
+
     // If target has not changed and animation is already running towards it, DO NOT interrupt!
     // Prevents 300ms server polling from cancelling the active animation
     if (targetKey === lastTargetKeyRef.current && isMovingRef.current) {
@@ -153,7 +160,8 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
 
     const startPos = { ...posRef.current };
     const maxIdx = sortedReaders.length - 1;
-    comrentWaypointIdxRef.current = fromIdx;
+    const fromIdx = Math.min(Math.max(0, currentWaypointIdxRef.current), maxIdx);
+    currentWaypointIdxRef.current = fromIdx;
 
     // If already at target position and index, no animation required
     if (targetIdx === fromIdx && dist(startPos, finalDestinationCoords) < 0.05) {
@@ -174,11 +182,14 @@ export function useSmoothLocation({ currentReader, allReaders = [], baseDuration
       // Forward progression
       const currentReaderPt = sortedReaders[fromIdx]?.coords;
       const nextReaderPt = sortedReaders[fromIdx + 1]?.coords;
-      // If markeready departedowards ao nextReaderPt && dist(startPos, currentReaderPt) > 0.4 && dist(startPos, nextReaderPt) < dist(currentReaderPt, nextReaderPt))
+      // If marker already departed fromIdx towards fromIdx + 1, start building forward from fromIdx + 1
+      const startI = (currentReaderPt && nextReaderPt && dist(startPos, currentReaderPt) > 0.4 && dist(startPos, nextReaderPt) < dist(currentReaderPt, nextReaderPt))
         ? fromIdx + 1
         : fromIdx;
 
-e?r f ist(patde[pathNodesth - 1], pt) > 0.1) {
+      for (let i = startI; i <= targetIdx; i++) {
+        const pt = sortedReaders[i]?.coords;
+        if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
           pathNodes.push(pt);
           nodeIndices.push(i);
         }
@@ -195,8 +206,10 @@ e?r f ist(patde[pathNodesth - 1], pt) > 0.1) {
         const pt = sortedReaders[i]?.coords;
         if (pt && dist(pathNodes[pathNodes.length - 1], pt) > 0.1) {
           pathNodes.push(pt);
-          nodeIndices.push(i)
-     e {
+          nodeIndices.push(i);
+        }
+      }
+    } else {
       pathNodes.push(finalDestinationCoords);
       nodeIndices.push(targetIdx);
     }
@@ -256,9 +269,12 @@ e?r f ist(patde[pathNodesth - 1], pt) > 0.1) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
-estartTime;
+
+    const animate = (now) => {
+      const elapsed = now - startTime;
       const rawProgress = Math.min(1, elapsed / moveDuration);
-      consa currentDist = easedProgress * totalPathDist;
+      const easedProgress = easeInOutQuad(rawProgress);
+      const currentDist = easedProgress * totalPathDist;
 
       // Find active segment
       let segIdx = 0;
@@ -272,7 +288,8 @@ estartTime;
       const segStartDist = cumDists[segIdx];
       const segLen = segmentDists[segIdx] || 0.0001;
       const segFraction = Math.min(1, Math.max(0, (currentDist - segStartDist) / segLen));
-on
+
+      const pA = cleanNodes[segIdx];
       const pB = cleanNodes[segIdx + 1];
 
       const currentX = pA.x + segFraction * (pB.x - pA.x);
@@ -294,7 +311,8 @@ on
         currentWaypointIdxRef.current = currentHopIdx;
         setActiveWaypointIdx(currentHopIdx);
       }
-ogress < 1) {
+
+      if (rawProgress < 1) {
         animFrameRef.current = requestAnimationFrame(animate);
       } else {
         animFrameRef.current = null;
@@ -303,7 +321,8 @@ ogress < 1) {
         currentWaypointIdxRef.current = targetIdx;
         setActiveWaypointIdx(targetIdx);
         setIsMoving(false);
-        isMovingRef.cu
+        isMovingRef.current = false;
+
         // Angle to face next reader upon arrival
         if (targetIdx + 1 < sortedReaders.length) {
           const nextAngle = angleDegrees(finalDestinationCoords, sortedReaders[targetIdx + 1].coords);
@@ -325,7 +344,8 @@ ogress < 1) {
   }, [
     currentReader?.id,
     currentReader?.location,
-    curreneader?.coords?.y,
+    currentReader?.coords?.x,
+    currentReader?.coords?.y,
     readersKey,
     baseDuration,
   ]);
@@ -340,7 +360,8 @@ ogress < 1) {
     const passed = [];
     for (let i = 0; i <= curIdx; i++) {
       if (sortedReaders[i]?.coords) {
-     
+        passed.push(sortedReaders[i].coords);
+      }
     }
     if (currentPos) {
       passed.push(currentPos);
