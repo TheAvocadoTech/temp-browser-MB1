@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import defaultReaders from "../config/rfidReaders.json";
 import { ZoomIn, ZoomOut, RotateCcw, Crosshair } from "lucide-react";
 import { useSmoothLocation } from "../hooks/useSmoothLocation";
@@ -74,7 +80,12 @@ export default function PathMapCanvas({
   });
 
   // Clamp pan so map content stays comfortably within view
-  const clampPan = (newPan, currentZoom, containerWidth = 1000, containerHeight = 700) => {
+  const clampPan = (
+    newPan,
+    currentZoom,
+    containerWidth = 1000,
+    containerHeight = 700,
+  ) => {
     if (currentZoom <= 1.01) return { x: 0, y: 0 };
     const maxX = (containerWidth * (currentZoom - 1)) / 1.7;
     const maxY = (containerHeight * (currentZoom - 1)) / 1.7;
@@ -87,8 +98,13 @@ export default function PathMapCanvas({
   const updateZoomPan = (newZoom, newPan) => {
     const clampedZoom = Math.min(Math.max(newZoom, 1.0), 6.0);
     const container = containerRef.current;
-    const rect = container ? container.getBoundingClientRect() : { width: 1000, height: 700 };
-    const clampedPan = clampedZoom <= 1.01 ? { x: 0, y: 0 } : clampPan(newPan, clampedZoom, rect.width, rect.height);
+    const rect = container
+      ? container.getBoundingClientRect()
+      : { width: 1000, height: 700 };
+    const clampedPan =
+      clampedZoom <= 1.01
+        ? { x: 0, y: 0 }
+        : clampPan(newPan, clampedZoom, rect.width, rect.height);
 
     zoomRef.current = clampedZoom;
     panRef.current = clampedPan;
@@ -100,7 +116,9 @@ export default function PathMapCanvas({
   const focusOnPoint = useCallback((coords, targetZoom = 2.4) => {
     if (!coords) return;
     const container = containerRef.current;
-    const rect = container ? container.getBoundingClientRect() : { width: 1000, height: 700 };
+    const rect = container
+      ? container.getBoundingClientRect()
+      : { width: 1000, height: 700 };
 
     const containerAspect = rect.width / (rect.height || 1);
     let svgW = rect.width;
@@ -171,7 +189,8 @@ export default function PathMapCanvas({
   };
 
   // 3. Touch Gestures: Pinch Zoom and Single-Finger Pan (Mobile and Tablet)
-  const getTouchDist = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+  const getTouchDist = (t1, t2) =>
+    Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
   const getTouchMidpoint = (t1, t2, rect) => ({
     x: (t1.clientX + t2.clientX) / 2 - rect.left - rect.width / 2,
     y: (t1.clientY + t2.clientY) / 2 - rect.top - rect.height / 2,
@@ -214,7 +233,10 @@ export default function PathMapCanvas({
       const now = Date.now();
       const prevTap = lastTapRef.current;
       const timeDiff = now - prevTap.time;
-      const distDiff = Math.hypot(touch.clientX - prevTap.x, touch.clientY - prevTap.y);
+      const distDiff = Math.hypot(
+        touch.clientX - prevTap.x,
+        touch.clientY - prevTap.y,
+      );
 
       // Double-tap to zoom in / reset view on touchscreen
       if (timeDiff < 320 && distDiff < 35) {
@@ -226,8 +248,12 @@ export default function PathMapCanvas({
           const mouseX = touch.clientX - rect.left - rect.width / 2;
           const mouseY = touch.clientY - rect.top - rect.height / 2;
           const targetZoom = 2.5;
-          const newPanX = mouseX - (mouseX - panRef.current.x) * (targetZoom / zoomRef.current);
-          const newPanY = mouseY - (mouseY - panRef.current.y) * (targetZoom / zoomRef.current);
+          const newPanX =
+            mouseX -
+            (mouseX - panRef.current.x) * (targetZoom / zoomRef.current);
+          const newPanY =
+            mouseY -
+            (mouseY - panRef.current.y) * (targetZoom / zoomRef.current);
           updateZoomPan(targetZoom, { x: newPanX, y: newPanY });
         }
         return;
@@ -272,14 +298,23 @@ export default function PathMapCanvas({
         } else {
           // Supports simultaneous zooming and panning with two fingers
           const scaleRatio = nextZoom / ts.initialZoom;
-          const pinchPanX = ts.midpoint.x - (ts.midpoint.x - ts.initialPan.x) * scaleRatio;
-          const pinchPanY = ts.midpoint.y - (ts.midpoint.y - ts.initialPan.y) * scaleRatio;
+          const pinchPanX =
+            ts.midpoint.x - (ts.midpoint.x - ts.initialPan.x) * scaleRatio;
+          const pinchPanY =
+            ts.midpoint.y - (ts.midpoint.y - ts.initialPan.y) * scaleRatio;
           const translationX = currentMid.x - ts.midpoint.x;
           const translationY = currentMid.y - ts.midpoint.y;
-          updateZoomPan(nextZoom, { x: pinchPanX + translationX, y: pinchPanY + translationY });
+          updateZoomPan(nextZoom, {
+            x: pinchPanX + translationX,
+            y: pinchPanY + translationY,
+          });
         }
       }
-    } else if (e.touches.length === 1 && ts.mode === "pan" && zoomRef.current > 1.02) {
+    } else if (
+      e.touches.length === 1 &&
+      ts.mode === "pan" &&
+      zoomRef.current > 1.02
+    ) {
       e.preventDefault();
       userPannedRef.current = true;
       const dx = e.touches[0].clientX - ts.lastTouch.x;
@@ -310,7 +345,10 @@ export default function PathMapCanvas({
       }, 80);
     } else if (e.touches.length === 1) {
       touchStateRef.current.mode = "pan";
-      touchStateRef.current.lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      touchStateRef.current.lastTouch = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+      };
     }
   };
 
@@ -350,10 +388,16 @@ export default function PathMapCanvas({
     if (!container) return;
 
     container.addEventListener("wheel", handleWheel, { passive: false });
-    container.addEventListener("touchstart", handleTouchStart, { passive: false });
-    container.addEventListener("touchmove", handleTouchMove, { passive: false });
+    container.addEventListener("touchstart", handleTouchStart, {
+      passive: false,
+    });
+    container.addEventListener("touchmove", handleTouchMove, {
+      passive: false,
+    });
     container.addEventListener("touchend", handleTouchEnd, { passive: false });
-    container.addEventListener("touchcancel", handleTouchEnd, { passive: false });
+    container.addEventListener("touchcancel", handleTouchEnd, {
+      passive: false,
+    });
 
     window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("mousemove", handleMouseMove);
@@ -370,7 +414,9 @@ export default function PathMapCanvas({
   }, []);
 
   // ── Data ─────────────────────────────────────────────────────────────────
-  const apiReaders = liveData?.allReaders?.length ? liveData.allReaders : defaultReaders;
+  const apiReaders = liveData?.allReaders?.length
+    ? liveData.allReaders
+    : defaultReaders;
   const currentReader = liveData?.currentReader || defaultReaders[0];
   const currentSeq = currentReader.sequence || 1;
 
@@ -381,11 +427,11 @@ export default function PathMapCanvas({
     }
     return apiReaders.map((r) => {
       const local = defaultReaders.find((d) => d.id === r.id);
-      return local ? { ...r, coords: local.coords, location: local.location } : r;
+      return local
+        ? { ...r, coords: local.coords, location: local.location }
+        : r;
     });
   }, [activeRoute, apiReaders]);
-
-
 
   const activeReader =
     allReaders.find((r) => r.id === currentReader.id) || currentReader;
@@ -400,7 +446,7 @@ export default function PathMapCanvas({
   } = useSmoothLocation({
     currentReader: activeReader,
     allReaders,
-    baseDuration: 380,
+    baseDuration: 1000,
   });
 
   const animatedSeq = activeSeq ?? currentSeq;
@@ -417,7 +463,8 @@ export default function PathMapCanvas({
     if (isInColoInfo.inColo) {
       // First entry or significant position change (> 1.2% map units) keeps the view smoothly centered
       const last = lastFocusPosRef.current;
-      const moved = !last || Math.hypot(currentPos.x - last.x, currentPos.y - last.y) > 1.2;
+      const moved =
+        !last || Math.hypot(currentPos.x - last.x, currentPos.y - last.y) > 1.2;
 
       if (!userPannedRef.current && moved) {
         lastFocusPosRef.current = { x: currentPos.x, y: currentPos.y };
@@ -428,8 +475,12 @@ export default function PathMapCanvas({
       if (!wasInColoRef.current) {
         wasInColoRef.current = true;
         setShowColoBadge(true);
-        if (coloBadgeTimeoutRef.current) clearTimeout(coloBadgeTimeoutRef.current);
-        coloBadgeTimeoutRef.current = setTimeout(() => setShowColoBadge(false), 3800);
+        if (coloBadgeTimeoutRef.current)
+          clearTimeout(coloBadgeTimeoutRef.current);
+        coloBadgeTimeoutRef.current = setTimeout(
+          () => setShowColoBadge(false),
+          3800,
+        );
       }
     } else {
       // If visitor was in colo area and has exited back to the corridor
@@ -455,12 +506,20 @@ export default function PathMapCanvas({
   const px = (x) => (x / 100) * 1000;
   const py = (y) => (y / 100) * 700;
 
-  const allPoints = allReaders.map((r) => `${px(r.coords.x)},${py(r.coords.y)}`).join(" ");
-  const passedPoints = smoothPassed.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
-  const remainingPoints = smoothRemaining.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
+  const allPoints = allReaders
+    .map((r) => `${px(r.coords.x)},${py(r.coords.y)}`)
+    .join(" ");
+  const passedPoints = smoothPassed
+    .map((p) => `${px(p.x)},${py(p.y)}`)
+    .join(" ");
+  const remainingPoints = smoothRemaining
+    .map((p) => `${px(p.x)},${py(p.y)}`)
+    .join(" ");
 
   const totalStops = allReaders.filter((r) => !r.isWaypoint).length;
-  const currentStopIndex = allReaders.filter((r) => !r.isWaypoint && r.sequence <= currentSeq).length;
+  const currentStopIndex = allReaders.filter(
+    (r) => !r.isWaypoint && r.sequence <= currentSeq,
+  ).length;
 
   // Dynamic floor plan selection:
   // - Key Cabinet (Colo 1) -> /map_colo1.png
@@ -477,7 +536,10 @@ export default function PathMapCanvas({
     const destId = destination?.id || "";
 
     // Key cabinet is NOT Colo 1, 2, or 3
-    if (/key\s*cabin[ei]t/i.test(destName) || /key\s*cabin[ei]t/i.test(destId)) {
+    if (
+      /key\s*cabin[ei]t/i.test(destName) ||
+      /key\s*cabin[ei]t/i.test(destId)
+    ) {
       return `${process.env.PUBLIC_URL}/map_nodata.png`;
     }
 
@@ -512,8 +574,12 @@ export default function PathMapCanvas({
       pt.x = e.clientX;
       pt.y = e.clientY;
       const cursorPt = pt.matrixTransform(svg.getScreenCTM().inverse());
-      const pctX = Number(Math.min(100, Math.max(0, (cursorPt.x / 1000) * 100)).toFixed(1));
-      const pctY = Number(Math.min(100, Math.max(0, (cursorPt.y / 700) * 100)).toFixed(1));
+      const pctX = Number(
+        Math.min(100, Math.max(0, (cursorPt.x / 1000) * 100)).toFixed(1),
+      );
+      const pctY = Number(
+        Math.min(100, Math.max(0, (cursorPt.y / 700) * 100)).toFixed(1),
+      );
       onPickCoords({ x: pctX, y: pctY });
     }
   };
@@ -586,7 +652,13 @@ export default function PathMapCanvas({
           width: "100%",
           height: "100%",
           minHeight: 0,
-          cursor: isPickMode ? "crosshair" : zoom > 1 ? (isDragging ? "grabbing" : "grab") : "default",
+          cursor: isPickMode
+            ? "crosshair"
+            : zoom > 1
+              ? isDragging
+                ? "grabbing"
+                : "grab"
+              : "default",
           overflow: "hidden",
           display: "flex",
           alignItems: "center",
@@ -645,7 +717,9 @@ export default function PathMapCanvas({
             height: "100%",
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: "center center",
-            transition: isDragging ? "none" : "transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
+            transition: isDragging
+              ? "none"
+              : "transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -667,12 +741,30 @@ export default function PathMapCanvas({
           >
             {/* Defs: Drop shadows, gradients, and filters */}
             <defs>
-              <filter id="path-glow" x="-20%" y="-20%" width="140%" height="140%">
+              <filter
+                id="path-glow"
+                x="-20%"
+                y="-20%"
+                width="140%"
+                height="140%"
+              >
                 <feGaussianBlur stdDeviation="3" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
-              <filter id="node-shadow" x="-50%" y="-50%" width="200%" height="200%">
-                <feDropShadow dx="0" dy="2" stdDeviation="2.5" floodColor="#0f172a" floodOpacity="0.25" />
+              <filter
+                id="node-shadow"
+                x="-50%"
+                y="-50%"
+                width="200%"
+                height="200%"
+              >
+                <feDropShadow
+                  dx="0"
+                  dy="2"
+                  stdDeviation="2.5"
+                  floodColor="#0f172a"
+                  floodOpacity="0.25"
+                />
               </filter>
             </defs>
 
@@ -788,7 +880,6 @@ export default function PathMapCanvas({
                 </g>
               );
             })}
-
 
             {/* ── 5. Fixed Reader Checkpoint Stations ── */}
             {allReaders.map((r) => {
@@ -1006,7 +1097,10 @@ export default function PathMapCanvas({
                     textAnchor="middle"
                     fontFamily="Inter, system-ui, sans-serif"
                   >
-                    📍 {selectedMarker.location || selectedMarker.name || "Location"}
+                    📍{" "}
+                    {selectedMarker.location ||
+                      selectedMarker.name ||
+                      "Location"}
                   </text>
                 </g>
               </g>
@@ -1015,7 +1109,12 @@ export default function PathMapCanvas({
             {/* ── 6. Live Smoothly Moving Location Radar Pulse & Marker ── */}
             {currentPos && (
               <g pointerEvents="none">
-                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="22" fill="rgba(34, 197, 94, 0.2)">
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="22"
+                  fill="rgba(34, 197, 94, 0.2)"
+                >
                   <animate
                     attributeName="r"
                     values="16;28;16"
@@ -1029,8 +1128,20 @@ export default function PathMapCanvas({
                     repeatCount="indefinite"
                   />
                 </circle>
-                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="14" fill="rgba(34, 197, 94, 0.35)" />
-                <circle cx={px(currentPos.x)} cy={py(currentPos.y)} r="9" fill="none" stroke="#22c55e" strokeWidth="2.5" />
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="14"
+                  fill="rgba(34, 197, 94, 0.35)"
+                />
+                <circle
+                  cx={px(currentPos.x)}
+                  cy={py(currentPos.y)}
+                  r="9"
+                  fill="none"
+                  stroke="#22c55e"
+                  strokeWidth="2.5"
+                />
                 <circle
                   cx={px(currentPos.x)}
                   cy={py(currentPos.y)}
@@ -1045,7 +1156,10 @@ export default function PathMapCanvas({
 
             {/* ── 7. Smooth Direction Arrow Indicator ── */}
             {currentPos && (
-              <g transform={`translate(${px(currentPos.x)},${py(currentPos.y)}) rotate(${currentAngle + 90})`} pointerEvents="none">
+              <g
+                transform={`translate(${px(currentPos.x)},${py(currentPos.y)}) rotate(${currentAngle + 90})`}
+                pointerEvents="none"
+              >
                 <polygon
                   points="-9,7 0,-16 9,7 0,2"
                   fill="#0284c7"
@@ -1055,8 +1169,6 @@ export default function PathMapCanvas({
                 />
               </g>
             )}
-
-
           </svg>
         </div>
 
@@ -1072,8 +1184,6 @@ export default function PathMapCanvas({
             zIndex: 25,
           }}
         >
-
-
           {[
             {
               icon: <Crosshair size={18} />,
@@ -1081,9 +1191,21 @@ export default function PathMapCanvas({
               title: "Center on Live Location",
               highlight: !userPannedRef.current && isInColoInfo.inColo,
             },
-            { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In (+)" },
-            { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out (-)" },
-            { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View (Fit Full Map)" },
+            {
+              icon: <ZoomIn size={18} />,
+              action: handleZoomIn,
+              title: "Zoom In (+)",
+            },
+            {
+              icon: <ZoomOut size={18} />,
+              action: handleZoomOut,
+              title: "Zoom Out (-)",
+            },
+            {
+              icon: <RotateCcw size={16} />,
+              action: handleReset,
+              title: "Reset View (Fit Full Map)",
+            },
           ].map(({ icon, action, title, highlight }) => (
             <button
               key={title}
@@ -1099,13 +1221,17 @@ export default function PathMapCanvas({
                 width: "40px",
                 height: "40px",
                 borderRadius: "10px",
-                backgroundColor: highlight ? "#0284c7" : "rgba(255,255,255,0.96)",
+                backgroundColor: highlight
+                  ? "#0284c7"
+                  : "rgba(255,255,255,0.96)",
                 border: highlight ? "1px solid #0284c7" : "1px solid #d1d5db",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
-                boxShadow: highlight ? "0 2px 10px rgba(2, 132, 199, 0.4)" : "0 2px 8px rgba(0,0,0,0.12)",
+                boxShadow: highlight
+                  ? "0 2px 10px rgba(2, 132, 199, 0.4)"
+                  : "0 2px 8px rgba(0,0,0,0.12)",
                 color: highlight ? "#ffffff" : "#1f2937",
                 transition: "all 0.15s ease",
                 touchAction: "manipulation",
@@ -1159,14 +1285,22 @@ export default function PathMapCanvas({
               >
                 Current
               </span>
-              <span style={{ fontSize: "12px", fontWeight: "800", color: "#0f172a" }}>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "800",
+                  color: "#0f172a",
+                }}
+              >
                 {currentReader.location}
               </span>
             </div>
           </div>
 
           {/* Divider */}
-          <div style={{ width: "1px", height: "24px", backgroundColor: "#e2e8f0" }} />
+          <div
+            style={{ width: "1px", height: "24px", backgroundColor: "#e2e8f0" }}
+          />
 
           {/* Destination Section */}
           <div
@@ -1202,8 +1336,17 @@ export default function PathMapCanvas({
               >
                 Destination
               </span>
-              <span style={{ fontSize: "12px", fontWeight: "800", color: "#0f172a" }}>
-                {destination?.name || destinationReader?.name || destinationReader?.location || "Destination"}
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "800",
+                  color: "#0f172a",
+                }}
+              >
+                {destination?.name ||
+                  destinationReader?.name ||
+                  destinationReader?.location ||
+                  "Destination"}
               </span>
             </div>
           </div>
@@ -1355,8 +1498,6 @@ export default function PathMapCanvas({
             </span>
           </div>
         </div>
-
-
       </div>
     </div>
   );

@@ -1,7 +1,14 @@
 // src/components/Map3DCanvas.js
 import React, { Suspense, useMemo, useRef, useState, useEffect } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, useGLTF, useTexture, Html, useProgress, Line } from "@react-three/drei";
+import {
+  OrbitControls,
+  useGLTF,
+  useTexture,
+  Html,
+  useProgress,
+  Line,
+} from "@react-three/drei";
 import * as THREE from "three";
 import { LocateFixed, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 import defaultReaders from "../config/rfidReaders.json";
@@ -20,15 +27,17 @@ const SCALE_Z = 1.0;
 // Re-anchored origins to translate the start point directly onto the marked red spot
 const BASE_SCALE = 0.55;
 const BASE_ORIGIN_X = -6.3; // Decreased from -8.8 to slide path LEFT into the room
-const BASE_ORIGIN_Z = -3.7;  // Increased from -4.3 to slide path DOWN into the hallway
+const BASE_ORIGIN_Z = -3.7; // Increased from -4.3 to slide path DOWN into the hallway
 
 // Average percentage center of your map path coordinates
-const CENTER_X_PCT = 50; 
-const CENTER_Y_PCT = 50; 
+const CENTER_X_PCT = 50;
+const CENTER_Y_PCT = 50;
 
 // Automatically re-anchor origin without altering relative spacing
-const ORIGIN_X = BASE_ORIGIN_X - (CENTER_X_PCT / 100) * FLOOR_WIDTH * (SCALE_X - BASE_SCALE);
-const ORIGIN_Z = BASE_ORIGIN_Z - (CENTER_Y_PCT / 100) * FLOOR_DEPTH * (SCALE_Z - BASE_SCALE);
+const ORIGIN_X =
+  BASE_ORIGIN_X - (CENTER_X_PCT / 100) * FLOOR_WIDTH * (SCALE_X - BASE_SCALE);
+const ORIGIN_Z =
+  BASE_ORIGIN_Z - (CENTER_Y_PCT / 100) * FLOOR_DEPTH * (SCALE_Z - BASE_SCALE);
 
 /**
  * Maps percentage coords accurately onto the 3D floor plan
@@ -58,7 +67,14 @@ function Loader() {
           minWidth: "220px",
         }}
       >
-        <div style={{ fontWeight: "700", marginBottom: "8px", fontSize: "14px", letterSpacing: "0.5px" }}>
+        <div
+          style={{
+            fontWeight: "700",
+            marginBottom: "8px",
+            fontSize: "14px",
+            letterSpacing: "0.5px",
+          }}
+        >
           LOADING 3D FACILITY MODEL
         </div>
         <div
@@ -94,7 +110,12 @@ function FloorplanReference({ visible = true, opacity = 0.5 }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]}>
       <planeGeometry args={[FLOOR_WIDTH, FLOOR_DEPTH]} />
-      <meshBasicMaterial map={texture} transparent opacity={opacity} depthWrite={false} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        opacity={opacity}
+        depthWrite={false}
+      />
     </mesh>
   );
 }
@@ -149,11 +170,18 @@ function LiveLocationDropMarker({ coords }) {
     const t = state.clock.getElapsedTime();
 
     if (coords && rootGroupRef.current) {
-      const [targetWx, targetWy, targetWz] = pctToWorld(coords.x, coords.y, 0.05);
-      const lerpSpeed = Math.min(1.0, delta * 14);
-      rootGroupRef.current.position.x += (targetWx - rootGroupRef.current.position.x) * lerpSpeed;
-      rootGroupRef.current.position.y += (targetWy - rootGroupRef.current.position.y) * lerpSpeed;
-      rootGroupRef.current.position.z += (targetWz - rootGroupRef.current.position.z) * lerpSpeed;
+      const [targetWx, targetWy, targetWz] = pctToWorld(
+        coords.x,
+        coords.y,
+        0.05,
+      );
+      const lerpSpeed = Math.min(1.0, delta * 24);
+      rootGroupRef.current.position.x +=
+        (targetWx - rootGroupRef.current.position.x) * lerpSpeed;
+      rootGroupRef.current.position.y +=
+        (targetWy - rootGroupRef.current.position.y) * lerpSpeed;
+      rootGroupRef.current.position.z +=
+        (targetWz - rootGroupRef.current.position.z) * lerpSpeed;
     }
 
     if (pinGroupRef.current) {
@@ -184,7 +212,12 @@ function LiveLocationDropMarker({ coords }) {
         {/* Soft shadow disc under pin tip */}
         <mesh>
           <circleGeometry args={[0.32, 32]} />
-          <meshBasicMaterial color="#000000" opacity={0.35} transparent depthWrite={false} />
+          <meshBasicMaterial
+            color="#000000"
+            opacity={0.35}
+            transparent
+            depthWrite={false}
+          />
         </mesh>
         {/* Floor landing dot */}
         <mesh>
@@ -194,7 +227,12 @@ function LiveLocationDropMarker({ coords }) {
         {/* Expanding pulse ripple */}
         <mesh ref={pulseRef}>
           <ringGeometry args={[0.25, 0.42, 32]} />
-          <meshBasicMaterial color="#22c55e" opacity={0.5} transparent depthWrite={false} />
+          <meshBasicMaterial
+            color="#22c55e"
+            opacity={0.5}
+            transparent
+            depthWrite={false}
+          />
         </mesh>
       </group>
 
@@ -245,7 +283,7 @@ function FlatPathLayer({
   activeReader,
 }) {
   const currentReader = liveData?.currentReader || defaultReaders[0];
-  const currentSeq    = currentReader.sequence || 1;
+  const currentSeq = currentReader.sequence || 1;
 
   const {
     currentPos,
@@ -295,11 +333,7 @@ function FlatPathLayer({
             transparent
             lineWidth={8}
           />
-          <Line
-            points={passedPoints3D}
-            color="#ea580c"
-            lineWidth={4.5}
-          />
+          <Line points={passedPoints3D} color="#ea580c" lineWidth={4.5} />
         </>
       )}
 
@@ -457,7 +491,8 @@ function FlatPathLayer({
                 }}
               >
                 <span style={{ color: "#38bdf8" }}>
-                  📍 {selectedMarker.location || selectedMarker.name || "Location"}
+                  📍{" "}
+                  {selectedMarker.location || selectedMarker.name || "Location"}
                 </span>
                 <span style={{ fontSize: "10px", opacity: 0.8 }}>✕</span>
               </div>
@@ -484,45 +519,54 @@ function FlatPathLayer({
 
         const chevHaloPoints = [
           [-0.25, 0, -0.2],
-          [0,     0,  0.25],
-          [0.25,  0, -0.2],
+          [0, 0, 0.25],
+          [0.25, 0, -0.2],
         ];
         const chevCorePoints = [
           [-0.22, 0, -0.18],
-          [0,     0,  0.23],
-          [0.22,  0, -0.18],
+          [0, 0, 0.23],
+          [0.22, 0, -0.18],
         ];
 
         const offX = Math.sin(angle) * 0.6;
         const offZ = Math.cos(angle) * 0.6;
 
         return (
-          <group key={`turn-${r.id}`} position={[wx + offX, wy, wz + offZ]} rotation={[0, angle, 0]}>
-            <Line points={chevHaloPoints} color="rgba(255,255,255,0.9)" lineWidth={4.5} />
+          <group
+            key={`turn-${r.id}`}
+            position={[wx + offX, wy, wz + offZ]}
+            rotation={[0, angle, 0]}
+          >
+            <Line
+              points={chevHaloPoints}
+              color="rgba(255,255,255,0.9)"
+              lineWidth={4.5}
+            />
             <Line points={chevCorePoints} color="#0ea5e9" lineWidth={2.8} />
           </group>
         );
       })}
 
       {/* ── 6. Leading direction arrow flat on floor at smooth position ── */}
-      {smoothRemaining.length > 1 && (() => {
-        const [cx, cy, cz] = pctToWorld(currentPos.x, currentPos.y, 0.2);
-        const angle = -((currentAngle - 90) * Math.PI) / 180;
+      {smoothRemaining.length > 1 &&
+        (() => {
+          const [cx, cy, cz] = pctToWorld(currentPos.x, currentPos.y, 0.2);
+          const angle = -((currentAngle - 90) * Math.PI) / 180;
 
-        const arrowPoints = [
-          [-0.2, 0, -0.25],
-          [0,    0,  0.35],
-          [0.2,  0, -0.25],
-          [0,    0, -0.1],
-          [-0.2, 0, -0.25],
-        ];
+          const arrowPoints = [
+            [-0.2, 0, -0.25],
+            [0, 0, 0.35],
+            [0.2, 0, -0.25],
+            [0, 0, -0.1],
+            [-0.2, 0, -0.25],
+          ];
 
-        return (
-          <group position={[cx, cy, cz]} rotation={[0, angle, 0]}>
-            <Line points={arrowPoints} color="#0ea5e9" lineWidth={3} />
-          </group>
-        );
-      })()}
+          return (
+            <group position={[cx, cy, cz]} rotation={[0, angle, 0]}>
+              <Line points={arrowPoints} color="#0ea5e9" lineWidth={3} />
+            </group>
+          );
+        })()}
     </group>
   );
 }
@@ -621,10 +665,14 @@ export default function Map3DCanvas({
     if (activeRoute && activeRoute.length > 0) {
       return activeRoute;
     }
-    const apiReaders = liveData?.allReaders?.length ? liveData.allReaders : defaultReaders;
+    const apiReaders = liveData?.allReaders?.length
+      ? liveData.allReaders
+      : defaultReaders;
     return apiReaders.map((r) => {
       const local = defaultReaders.find((d) => d.id === r.id);
-      return local ? { ...r, coords: local.coords, location: local.location } : r;
+      return local
+        ? { ...r, coords: local.coords, location: local.location }
+        : r;
     });
   }, [activeRoute, liveData?.allReaders]);
 
@@ -633,14 +681,17 @@ export default function Map3DCanvas({
     allReaders.find((r) => r.id === currentReader.id) || currentReader;
   const currentSeq = currentReader.sequence || 1;
   const totalStops = allReaders.filter((r) => !r.isWaypoint).length;
-  const progressPct = totalStops > 1 ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100) : 0;
+  const progressPct =
+    totalStops > 1
+      ? Math.round(((currentSeq - 1) / (totalStops - 1)) * 100)
+      : 0;
   const destinationReader = destination || allReaders[allReaders.length - 1];
 
   // Smooth location state
   const smoothLoc = useSmoothLocation({
     currentReader: activeReader,
     allReaders,
-    baseDuration: 380,
+    baseDuration: 1000,
   });
   const { currentPos } = smoothLoc;
 
@@ -703,7 +754,15 @@ export default function Map3DCanvas({
   };
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative", backgroundColor: "#f8fafc", touchAction: "none" }}>
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        position: "relative",
+        backgroundColor: "#f8fafc",
+        touchAction: "none",
+      }}
+    >
       {/* ── Auto-Zoom in Colo Area Notification Badge ── */}
       {showColoBadge && (
         <div
@@ -750,7 +809,10 @@ export default function Map3DCanvas({
         <directionalLight position={[15, 30, 15]} intensity={1.2} castShadow />
         <directionalLight position={[-15, 20, -15]} intensity={0.5} />
         <Suspense fallback={<Loader />}>
-          <FloorplanReference visible={showFloorplan} opacity={floorplanOpacity} />
+          <FloorplanReference
+            visible={showFloorplan}
+            opacity={floorplanOpacity}
+          />
           <FacilityModel liveTransform={liveTransform} />
           <FlatPathLayer
             liveData={liveData}
@@ -786,9 +848,21 @@ export default function Map3DCanvas({
         }}
       >
         {[
-          { icon: <ZoomIn size={18} />, action: handleZoomIn, title: "Zoom In (+)" },
-          { icon: <ZoomOut size={18} />, action: handleZoomOut, title: "Zoom Out (-)" },
-          { icon: <RotateCcw size={16} />, action: handleReset, title: "Reset View" },
+          {
+            icon: <ZoomIn size={18} />,
+            action: handleZoomIn,
+            title: "Zoom In (+)",
+          },
+          {
+            icon: <ZoomOut size={18} />,
+            action: handleZoomOut,
+            title: "Zoom Out (-)",
+          },
+          {
+            icon: <RotateCcw size={16} />,
+            action: handleReset,
+            title: "Reset View",
+          },
         ].map(({ icon, action, title }) => (
           <button
             key={title}
@@ -820,7 +894,6 @@ export default function Map3DCanvas({
           </button>
         ))}
       </div>
-
 
       {/* ── Status overlay card (top-left) ── */}
       <div
@@ -854,17 +927,30 @@ export default function Map3DCanvas({
             }}
           />
           <div>
-            <span style={{ fontSize: "8.5px", fontWeight: "700", color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", display: "block" }}>
+            <span
+              style={{
+                fontSize: "8.5px",
+                fontWeight: "700",
+                color: "#6b7280",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                display: "block",
+              }}
+            >
               Current
             </span>
-            <span style={{ fontSize: "12px", fontWeight: "800", color: "#1f2937" }}>
+            <span
+              style={{ fontSize: "12px", fontWeight: "800", color: "#1f2937" }}
+            >
               {currentReader.location}
             </span>
           </div>
         </div>
 
         {/* Divider */}
-        <div style={{ width: "1px", height: "24px", backgroundColor: "#e2e8f0" }} />
+        <div
+          style={{ width: "1px", height: "24px", backgroundColor: "#e2e8f0" }}
+        />
 
         {/* Destination Section */}
         <div
@@ -888,16 +974,36 @@ export default function Map3DCanvas({
             }}
           />
           <div>
-            <span style={{ fontSize: "8.5px", fontWeight: "700", color: "#ef4444", letterSpacing: "0.06em", textTransform: "uppercase", display: "block" }}>
+            <span
+              style={{
+                fontSize: "8.5px",
+                fontWeight: "700",
+                color: "#ef4444",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                display: "block",
+              }}
+            >
               Destination
             </span>
-            <span style={{ fontSize: "12px", fontWeight: "800", color: "#1f2937" }}>
+            <span
+              style={{ fontSize: "12px", fontWeight: "800", color: "#1f2937" }}
+            >
               {destinationReader?.name || destinationReader?.location}
             </span>
           </div>
         </div>
 
-        <span style={{ fontSize: "11px", fontWeight: "700", color: "#0ea5e9", backgroundColor: "#e0f2fe", padding: "3px 8px", borderRadius: "10px" }}>
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: "700",
+            color: "#0ea5e9",
+            backgroundColor: "#e0f2fe",
+            padding: "3px 8px",
+            borderRadius: "10px",
+          }}
+        >
           {progressPct}%
         </span>
       </div>
