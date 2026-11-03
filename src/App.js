@@ -68,6 +68,34 @@ export default function App() {
     setIsPickMode(true);
   };
 
+  const handleIncomingLiveData = useCallback((data) => {
+    if (!data) return;
+    setLiveData(data);
+
+    // Check if token session is expired in DB
+    if (data.isExpired) {
+      setIsSessionExpired(true);
+      setShowDestinationModal(false);
+      return;
+    }
+
+    // Trigger destination arrival when tag arrives at target
+    const currentReader = data.currentReader;
+    const isAtActiveTarget =
+      (data.isAtDestination && (activeDestination?.id === "dest-key-cabinet" || activeDestination?.readerId === 43)) ||
+      (currentReader && (
+        currentReader.id === activeDestination?.readerId ||
+        currentReader.id === activeDestination?.id ||
+        (activeDestination?.coords &&
+          Math.abs(currentReader.coords?.x - activeDestination.coords.x) < 0.5 &&
+          Math.abs(currentReader.coords?.y - activeDestination.coords.y) < 0.5)
+      ));
+
+    if (isAtActiveTarget && !hasClosedMap) {
+      setShowDestinationModal(true);
+    }
+  }, [activeDestination, hasClosedMap]);
+
   const fetchLivePath = useCallback(async () => {
     // If session was expired, halt polling
     if (isSessionExpired) return;
@@ -87,44 +115,58 @@ export default function App() {
       if (response.ok) {
         const json = await response.json();
         if (json.success && json.data) {
-          const data = json.data;
-          setLiveData(data);
-
-          // Check if token session is expired in DB
-          if (data.isExpired) {
-            setIsSessionExpired(true);
-            setShowDestinationModal(false);
-            return;
-          }
-
-          // Trigger destination arrival when tag arrives at target
-          const currentReader = data.currentReader;
-          const isAtActiveTarget =
-            (data.isAtDestination && (activeDestination?.id === "dest-key-cabinet" || activeDestination?.readerId === 43)) ||
-            (currentReader && (
-              currentReader.id === activeDestination?.readerId ||
-              currentReader.id === activeDestination?.id ||
-              (activeDestination?.coords &&
-                Math.abs(currentReader.coords?.x - activeDestination.coords.x) < 0.5 &&
-                Math.abs(currentReader.coords?.y - activeDestination.coords.y) < 0.5)
-            ));
-
-          if (isAtActiveTarget && !hasClosedMap) {
-            setShowDestinationModal(true);
-          }
+          handleIncomingLiveData(json.data);
         }
       }
     } catch (err) {
       console.error("Live path polling error:", err);
     }
-  }, [token, tagCode, isSessionExpired, hasClosedMap, activeDestination]);
+  }, [token, tagCode, isSessionExpired, handleIncomingLiveData]);
 
+  // Real-time instant SSE stream: starts marker movement immediately when reader API receives a scan
   useEffect(() => {
+    if (isSessionExpired) return;
+
+    const configuredApi = process.env.REACT_APP_API_URL;
+    const API_BASE =
+      configuredApi && !configuredApi.includes("192.168.20.10")
+        ? configuredApi
+        : `${window.location.protocol}//${window.location.hostname || "localhost"}:7000`;
+
+    const identifier = token || tagCode || "V002";
+    const streamUrl = `${API_BASE}/api/rfid/stream/${identifier}`;
+
+    let eventSource = null;
+
+    try {
+      eventSource = new EventSource(streamUrl);
+
+      eventSource.onmessage = (event) => {
+        try {
+          if (!event.data || event.data.startsWith(":")) return;
+          const data = JSON.parse(event.data);
+          if (data && data.currentReader) {
+            handleIncomingLiveData(data);
+          }
+        } catch (e) {}
+      };
+    } catch (err) {
+      console.warn("EventSource stream connection skipped, using HTTP polling fallback", err);
+    }
+
+    // Initial fetch to populate map immediately
     fetchLivePath();
-    // Fast 300ms polling interval ensures real-time map updates
-    const interval = setInterval(fetchLivePath, 300);
-    return () => clearInterval(interval);
-  }, [fetchLivePath]);
+
+    // Secondary fallback poll (every 1200ms) to ensure resilience
+    const interval = setInterval(fetchLivePath, 1200);
+
+    return () => {
+      clearInterval(interval);
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [token, tagCode, isSessionExpired, fetchLivePath, handleIncomingLiveData]);
 
   const handleCloseMap = () => {
     setShowDestinationModal(false);
